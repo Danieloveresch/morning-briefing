@@ -1,0 +1,37 @@
+name: Build Morning Briefing
+
+on:
+  schedule:
+    - cron: '0 4 * * *'      # taeglich ~06:00 Berlin (fertig vor 06:30)
+  workflow_dispatch:           # erlaubt manuellen Start per Knopf
+
+permissions:
+  contents: write              # darf die fertige Seite zurueckschreiben
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo holen
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Pakete installieren
+        run: pip install -r requirements.txt
+
+      - name: Briefing erzeugen
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python briefing.py
+
+      - name: Seite veroeffentlichen
+        run: |
+          git config user.name "briefing-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html manifest.json
+          git commit -m "Briefing aktualisiert" || echo "Keine Aenderungen"
+          git push
