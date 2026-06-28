@@ -1,353 +1,53 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
+<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Morning Briefing">
-<meta name="theme-color" content="#FCFCFA">
-<title>Morning Briefing</title>
-<style>
-  :root{
-    --paper:#FCFCFA; --card:#FFFFFF; --ink:#1A1B1D; --ink-soft:#46484D;
-    --meta:#8C8B85; --hair:#ECEBE6; --accent:#33524F;
-    --warm:#C2613B; --cool:#5E7E97; --mild:#8FA68C; --hl:#EEF3F1;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0;background:var(--paper);color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased;line-height:1.45;}
-  .wrap{max-width:600px;margin:0 auto;padding:24px 18px 44px;}
-  .card{background:var(--card);border:1px solid var(--hair);border-radius:4px;overflow:hidden;}
-  a{color:inherit;}
-
-  .mast{padding:18px 26px 14px;border-bottom:1px solid var(--hair);
-    display:flex;justify-content:space-between;align-items:baseline;}
-  .wordmark{font-size:12px;letter-spacing:.3em;text-transform:uppercase;font-weight:600;}
-  .submark{font-size:10.5px;color:var(--meta);margin-top:3px;letter-spacing:.04em;}
-  .date{font-size:12px;color:var(--meta);font-style:italic;font-family:Georgia,serif;text-align:right;}
-
-  .sec{padding:13px 26px;}
-  .divider{height:1px;background:var(--hair);margin:0 26px;}
-  .eyebrow{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);font-weight:600;}
-  .eyebrow .count{color:var(--meta);letter-spacing:.08em;font-weight:500;}
-
-  /* Whoop */
-  .whoop{padding:14px 26px;background:#F6F8F7;border-bottom:1px solid var(--hair);}
-  .whoop-row{display:flex;gap:18px;margin-top:9px;flex-wrap:wrap;}
-  .wh{display:flex;flex-direction:column;}
-  .wh .v{font-size:16px;font-weight:700;color:var(--ink);}
-  .wh .v .u{font-size:10px;font-weight:400;color:var(--meta);}
-  .wh .k{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--meta);margin-top:1px;}
-  .wh .v.good{color:#2F7D5B;}
-  .whoop-tip{margin-top:10px;font-size:11.5px;color:var(--ink-soft);}
-  .whoop-tip b{color:var(--accent);}
-
-  /* Greeting line */
-  .greet{padding:13px 26px;border-bottom:1px solid var(--hair);}
-  .hi{font-size:14.5px;font-weight:600;}
-  .bday{margin-top:5px;font-size:12px;color:var(--ink-soft);}
-  .bday .cake{color:var(--accent);font-weight:600;}
-  .quote{margin-top:8px;font-size:12px;font-style:italic;font-family:Georgia,serif;color:var(--ink-soft);}
-  .quote .by{color:var(--meta);font-style:normal;}
-
-  /* Weather ultra-compact */
-  .wx-grid{display:flex;margin-top:9px;}
-  .wx{flex:1;text-align:center;border-left:1px solid var(--hair);padding:0 1px;}
-  .wx:first-child{border-left:none;}
-  .wx-day{font-size:9px;letter-spacing:.04em;color:var(--meta);text-transform:uppercase;}
-  .wx-day.today{color:var(--ink);font-weight:700;}
-  .wx-ico{font-size:13px;margin:2px 0;color:var(--ink-soft);}
-  .wx-t{font-size:11px;font-weight:600;}
-  .wx-t .lo{color:var(--meta);font-weight:400;}
-
-  /* Markets */
-  .mkt-row{display:flex;align-items:center;gap:16px;margin-top:9px;}
-  .mkt{display:flex;align-items:baseline;gap:6px;text-decoration:none;}
-  .mkt .nm{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--meta);font-weight:600;}
-  .mkt .vl{font-size:13.5px;font-weight:600;color:var(--ink);}
-  .mkt .ch{font-size:11px;font-weight:600;}
-  .mkt-sep{width:1px;height:18px;background:var(--hair);}
-  .up{color:#2F7D5B;} .down{color:#A8453A;}
-
-  /* Photos on this day */
-  .photos{display:flex;gap:10px;margin-top:9px;}
-  .ph{flex:1;border-radius:4px;height:96px;position:relative;overflow:hidden;text-decoration:none;
-    display:flex;align-items:flex-end;}
-  .ph1{background:linear-gradient(135deg,#7E9B98,#33524F);}
-  .ph2{background:linear-gradient(135deg,#C2A574,#9A7B4F);}
-  .ph-cap{font-size:10px;color:#fff;padding:7px 9px;width:100%;
-    background:linear-gradient(transparent,rgba(0,0,0,.45));}
-  .ph-cap .arr{float:right;opacity:.9;}
-
-  /* Agenda */
-  .ag{padding:6px 0;border-top:1px solid var(--hair);font-size:12px;display:flex;gap:9px;}
-  .ag:first-of-type{border-top:none;}
-  .ag .when{color:var(--accent);font-weight:700;font-size:10px;min-width:74px;text-transform:uppercase;letter-spacing:.03em;}
-  .ag .what{color:var(--ink-soft);}
-
-  /* Highlights */
-  .hl{margin:5px 26px 1px;background:var(--hl);border-left:3px solid var(--accent);
-    border-radius:0 4px 4px 0;padding:11px 14px;}
-  .hl-eyebrow{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:700;}
-  .hl a{font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;display:block;margin-top:5px;line-height:1.3;}
-  .hl-sum{font-size:11.5px;color:var(--ink-soft);margin-top:4px;line-height:1.4;}
-  .hl-meta{font-size:9.5px;color:var(--meta);margin-top:5px;}
-
-  /* News items */
-  .item{padding:9px 0;border-top:1px solid var(--hair);}
-  .item:first-of-type{border-top:none;padding-top:8px;}
-  .item a.title{font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none;line-height:1.28;}
-  .summary{margin:3px 0 4px;font-size:12px;color:var(--ink-soft);line-height:1.4;}
-  .meta{font-size:10px;color:var(--meta);}
-  .meta .src{color:var(--accent);font-weight:600;text-decoration:none;}
-
-  /* Podcasts */
-  .pod{padding:8px 0;border-top:1px solid var(--hair);font-size:12px;}
-  .pod:first-of-type{border-top:none;}
-  .pod .name{font-weight:600;color:var(--accent);display:block;}
-  .pod .topic{color:var(--ink-soft);display:block;margin-top:2px;line-height:1.4;}
-
-  /* Recipe */
-  .recipe{display:flex;gap:12px;margin-top:9px;text-decoration:none;align-items:center;}
-  .recipe-img{width:84px;height:84px;border-radius:4px;flex-shrink:0;
-    background:linear-gradient(135deg,#D8C39A,#A8884E);}
-  .recipe-body .r-title{font-size:13.5px;font-weight:600;color:var(--ink);}
-  .recipe-body .r-meta{font-size:10.5px;color:var(--meta);margin-top:3px;}
-  .recipe-body .r-meta .star{color:var(--warm);}
-  .recipe-body .r-ing{font-size:11.5px;color:var(--ink-soft);margin-top:5px;}
-
-  /* Football compact */
-  .game{display:flex;align-items:baseline;gap:7px;padding:7px 0;border-top:1px solid var(--hair);font-size:12.5px;flex-wrap:wrap;}
-  .game:first-of-type{border-top:none;padding-top:8px;}
-  .g-when{color:var(--accent);font-weight:700;font-size:10px;letter-spacing:.03em;min-width:60px;}
-  .g-team{font-weight:600;color:var(--ink);text-decoration:none;}
-  .g-pos{color:var(--meta);font-size:10.5px;}
-  .g-opp{color:var(--ink-soft);}
-  .g-comp{color:var(--meta);font-size:9px;letter-spacing:.03em;margin-left:auto;text-transform:uppercase;}
-
-  .foot{padding:15px 26px 20px;border-top:1px solid var(--hair);font-size:10px;color:var(--meta);line-height:1.5;}
-  .illus{margin-top:10px;font-size:9.5px;color:#B6B5AE;text-align:center;}
-  .flag{color:#B08968;font-weight:600;}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
-
-    <div class="mast">
-      <div><div class="wordmark">Morning Briefing</div><div class="submark">für Daniel Overesch</div></div>
-      <div class="date">Samstag<br>27. Juni 2026</div>
-    </div>
-
-    <!-- WHOOP (über dem Wetter) -->
-    <div class="whoop">
-      <div class="eyebrow">Whoop · heute</div>
-      <div class="whoop-row">
-        <div class="wh"><div class="v good">72<span class="u">%</span></div><div class="k">Recovery</div></div>
-        <div class="wh"><div class="v">7:15<span class="u"> h</span></div><div class="k">Schlaf</div></div>
-        <div class="wh"><div class="v">12.4</div><div class="k">Strain</div></div>
-        <div class="wh"><div class="v">68<span class="u"> ms</span></div><div class="k">HRV</div></div>
-        <div class="wh"><div class="v">51<span class="u"> bpm</span></div><div class="k">Ruhepuls</div></div>
-      </div>
-      <div class="whoop-tip"><b>Gut erholt.</b> Recovery im grünen Bereich, HRV über deinem 30-Tage-Schnitt.</div>
-    </div>
-
-    <!-- Greeting -->
-    <div class="greet">
-      <div class="hi">Guten Morgen, Daniel</div>
-      <div class="bday"><span class="cake">&#127874; Geburtstag heute:</span> Jelko Münsterkötter (32)</div>
-      <div class="quote">Es ist nicht wenig Zeit, die wir haben, sondern es ist viel Zeit, die wir nicht nutzen. <span class="by">— Seneca</span></div>
-    </div>
-
-    <!-- Weather compact -->
-    <div class="sec">
-      <div class="eyebrow">Wetter <span class="count">10 Tage · Münster</span></div>
-      <div class="wx-grid">
-        <div class="wx"><div class="wx-day today">Sa</div><div class="wx-ico">&#9728;&#65038;</div><div class="wx-t">36<span class="lo">/23</span></div></div>
-        <div class="wx"><div class="wx-day">So</div><div class="wx-ico">&#9925;&#65038;</div><div class="wx-t">34<span class="lo">/22</span></div></div>
-        <div class="wx"><div class="wx-day">Mo</div><div class="wx-ico">&#9928;&#65038;</div><div class="wx-t">27<span class="lo">/18</span></div></div>
-        <div class="wx"><div class="wx-day">Di</div><div class="wx-ico">&#9730;&#65038;</div><div class="wx-t">25<span class="lo">/15</span></div></div>
-        <div class="wx"><div class="wx-day">Mi</div><div class="wx-ico">&#9729;&#65038;</div><div class="wx-t">24<span class="lo">/14</span></div></div>
-        <div class="wx"><div class="wx-day">Do</div><div class="wx-ico">&#9925;&#65038;</div><div class="wx-t">23<span class="lo">/13</span></div></div>
-        <div class="wx"><div class="wx-day">Fr</div><div class="wx-ico">&#9728;&#65038;</div><div class="wx-t">25<span class="lo">/14</span></div></div>
-        <div class="wx"><div class="wx-day">Sa</div><div class="wx-ico">&#9925;&#65038;</div><div class="wx-t">26<span class="lo">/15</span></div></div>
-        <div class="wx"><div class="wx-day">So</div><div class="wx-ico">&#9729;&#65038;</div><div class="wx-t">24<span class="lo">/15</span></div></div>
-        <div class="wx"><div class="wx-day">Mo</div><div class="wx-ico">&#9730;&#65038;</div><div class="wx-t">25<span class="lo">/16</span></div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Markets -->
-    <div class="sec">
-      <div class="eyebrow">Märkte <span class="count">Stand 6:30</span></div>
-      <div class="mkt-row">
-        <a class="mkt" href="https://www.boerse-frankfurt.de/index/dax"><span class="nm">DAX</span><span class="vl">24.182</span><span class="ch up">&#9650;0,58%</span></a>
-        <div class="mkt-sep"></div>
-        <a class="mkt" href="https://www.ishares.com/us/products/239696/"><span class="nm">MSCI World</span><span class="vl">172,40$</span><span class="ch up">&#9650;0,34%</span></a>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Photos on this day -->
-    <div class="sec">
-      <div class="eyebrow">An diesem Tag <span class="count">aus deiner Mediathek <span class="flag">· App-Funktion</span></span></div>
-      <div class="photos">
-        <a class="ph ph1" href="photos-redirect"><div class="ph-cap">Sofie &amp; du · 27.06.2022 <span class="arr">&#8599;</span></div></a>
-        <a class="ph ph2" href="photos-redirect"><div class="ph-cap">Mit Niklas &amp; Tobias · 27.06.2019 <span class="arr">&#8599;</span></div></a>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Agenda -->
-    <div class="sec">
-      <div class="eyebrow">Heute &amp; diese Woche</div>
-      <div style="margin-top:8px;">
-        <div class="ag"><span class="when">Sofie · heute</span><span class="what">Family in Münster</span></div>
-        <div class="ag"><span class="when">Sofie · morgen</span><span class="what">—</span></div>
-        <div class="ag"><span class="when">Familie</span><span class="what">Mama &amp; Papa auf Sylt (bis 29.06.)</span></div>
-        <div class="ag"><span class="when">Do 02.07.</span><span class="what">Alumni-Treff zeb Münster</span></div>
-      </div>
-    </div>
-
-    <!-- ADPKD -->
-    <div class="hl">
-      <div class="hl-eyebrow">ADPKD-Forschung · für dich relevant</div>
-      <a href="https://kdigo.org/guidelines/adpkd/">KDIGO veröffentlicht erste umfassende ADPKD-Leitlinie</a>
-      <div class="hl-sum">Erstmals bündelt eine internationale Leitlinie konkrete Empfehlungen fürs Frühstadium:
-        regelmäßige Bildgebung zur Kontrolle von Zysten und Nierenvolumen, konsequente
-        Blutdruckeinstellung (Ziel meist ≤120/80) und ausreichende Trinkmenge als Basis.
-        Tolvaptan wird bei hohem Progressionsrisiko empfohlen; die Mayo-Klassifikation hilft,
-        dieses Risiko früh einzuschätzen. Parallel prüft die Studie IMPEDE-PKD, ob das gut
-        verträgliche Metformin den Verlauf bremst – gezielt früh angesetzt. Für dich heißt das:
-        Risiko-Einstufung und Monitoring-Intervalle beim nächsten Termin ansprechen.</div>
-      <div class="hl-meta">Quelle: KDIGO 2025 · Orientierung, kein ärztlicher Rat – mit deiner Nephrologin besprechen</div>
-    </div>
-
-    <div class="sec">
-      <div class="eyebrow">Politik &amp; Welt <span class="count">3</span></div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.tagesschau.de/">Hitzewelle: Behörden rufen höchste Warnstufe aus</a><div class="summary">Spitzen bis 38 °C; Entspannung ab Wochenbeginn.</div><div class="meta"><a class="src" href="https://www.tagesschau.de/">Tagesschau</a> · vor 3 Std</div></div>
-        <div class="item"><a class="title" href="https://www.tagesschau.de/">Bundestag verabschiedet Digitalbudget</a><div class="summary">Mittel für Verwaltungsdigitalisierung deutlich aufgestockt.</div><div class="meta"><a class="src" href="https://www.tagesschau.de/">Tagesschau</a> · vor 5 Std</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <div class="sec">
-      <div class="eyebrow">Wirtschaft &amp; Finanzen <span class="count">3</span></div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.handelsblatt.com/finanzen/">EZB hält Leitzins stabil – Signal für den Herbst</a><div class="summary">Markt preist erste Senkung im vierten Quartal ein.</div><div class="meta"><a class="src" href="https://www.handelsblatt.com/">Handelsblatt</a> · vor 1 Std</div></div>
-        <div class="item"><a class="title" href="https://www.handelsblatt.com/finanzen/">Dax startet fester – Tech-Werte ziehen an</a><div class="summary">Halbleiter und Software führen vor US-Arbeitsmarktdaten.</div><div class="meta"><a class="src" href="https://www.handelsblatt.com/">Handelsblatt</a> · vor 6 Std</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- KI & Tech (weiter hinten) -->
-    <div class="sec">
-      <div class="eyebrow">Künstliche Intelligenz &amp; Tech <span class="count">3</span></div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.theverge.com/">OpenAI stellt neues Reasoning-Modell vor</a><div class="summary">Günstiger, schneller, Fokus auf Agenten-Workflows.</div><div class="meta"><a class="src" href="https://www.theverge.com/">The Verge</a> · vor 2 Std</div></div>
-        <div class="item"><a class="title" href="https://venturebeat.com/">KI-Agenten übernehmen erste Back-Office-Prozesse in Banken</a><div class="summary">Pilotprojekte: 30–40 % Zeitersparnis bei Sachbearbeitung.</div><div class="meta"><a class="src" href="https://venturebeat.com/">VentureBeat</a> · vor 8 Std</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Presse-Radar + Lokal -->
-    <div class="hl">
-      <div class="hl-eyebrow">Aus deinen Kontakten · in der Lokalpresse</div>
-      <a href="https://www.mv-online.de/">2 Treffer: bekannte Namen in der MV genannt</a>
-      <div class="hl-sum">Namen aus deinen Kontakten in MV-Artikeln erkannt — bitte selbst prüfen.</div>
-      <div class="hl-meta">Quelle: Münsterländische Volkszeitung · Beispiel</div>
-    </div>
-
-    <div class="sec">
-      <div class="eyebrow">Mesum &amp; Rheine <span class="count">2 · MV</span></div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.mv-online.de/">Mesum: Rat beschließt neues Baugebiet am Ortsrand</a><div class="summary">Platz für rund 40 Einfamilienhäuser; die Erschließung soll 2027 starten. Anwohner fordern mehr Grünflächen und eine Tempo-30-Zone.</div><div class="meta"><a class="src" href="https://www.mv-online.de/">MV Rheine</a> · vor 2 Std</div></div>
-        <div class="item"><a class="title" href="https://www.mv-online.de/">Emsradweg bei Mesum saniert und freigegeben</a><div class="summary">Der beliebte Abschnitt ist nach den Hochwasserschäden wieder durchgängig befahrbar – pünktlich zur Sommersaison.</div><div class="meta"><a class="src" href="https://www.mv-online.de/">MV Rheine</a> · gestern</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Podcasts -->
-    <div class="sec">
-      <div class="eyebrow">Podcasts · neueste Folgen</div>
-      <div style="margin-top:8px;">
-        <div class="pod"><span class="name">Lanz &amp; Precht</span><span class="topic">Precht und Lanz diskutieren, wie KI unseren Wahrheitsbegriff verändert – und ob Faktenchecks im Zeitalter generativer Modelle überhaupt noch durchdringen.</span></div>
-        <div class="pod"><span class="name">Betreutes Fühlen (Atze &amp; Leon)</span><span class="topic">Leon Windscheid erklärt die Psychologie der Pause: warum Nichtstun das Gehirn produktiver macht und wie Mikro-Pausen den Arbeitstag tragen.</span></div>
-        <div class="pod"><span class="name">Lage der Nation</span><span class="topic">Haushaltsstreit, Rentenpaket und der Entwurf zur KI-Regulierung – die wichtigsten innenpolitischen Baustellen der Woche eingeordnet.</span></div>
-        <div class="pod"><span class="name">OMR</span><span class="topic">Philipp Westermeyer über den Stand der Kreator-Ökonomie 2026: neue Plattform-Deals, KI-Avatare und wo noch echtes Geld verdient wird.</span></div>
-        <div class="pod"><span class="name">Finance Forward</span><span class="topic">Neobanken im Konsolidierungsmodus: welche Fintechs übernommen werden, wer profitabel ist und was das für Genossenschaftsbanken bedeutet.</span></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Münster Events -->
-    <div class="sec">
-      <div class="eyebrow">Münster · diese Woche</div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.muenster.de/">Hansaviertelfest – Straßenfest rund um den Hansaplatz</a><div class="summary">Fr–So, Live-Musik, Streetfood, Flohmarkt am Sonntag.</div><div class="meta">Hansaviertel · Fr–So</div></div>
-        <div class="item"><a class="title" href="https://www.muenster.de/">Flohmarkt auf der Promenade</a><div class="summary">Münsters Klassiker entlang der Promenade – Trödel, Bücher und Vinyl von privaten Anbietern, bei gutem Wetter mit großem Andrang.</div><div class="meta">Sa, ab 7 Uhr</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Geno & Atruvia -->
-    <div class="sec">
-      <div class="eyebrow">Genossenschaftsbanken &amp; Atruvia <span class="count">2</span></div>
-      <div style="margin-top:8px;">
-        <div class="item"><a class="title" href="https://www.finanz-szene.de/">Atruvia rollt neue KI-Funktionen im VR-Banking aus</a><div class="summary">Erste KI-gestützte Assistenten gehen in den Breitenbetrieb; Fokus auf Beratung und automatisierte Sachbearbeitung. Pilotbanken berichten von spürbarer Entlastung.</div><div class="meta"><a class="src" href="https://www.finanz-szene.de/">Finanz-Szene</a> · vor 4 Std</div></div>
-        <div class="item"><a class="title" href="https://www.finanz-szene.de/">BVR: Genossenschaftsbanken steigern Jahresergebnis</a><div class="summary">Solides Zinsergebnis trotz Konsolidierungsdruck; die Zahl der Institute sinkt weiter durch Fusionen. Eigenkapitalquote bleibt stabil.</div><div class="meta"><a class="src" href="https://www.finanz-szene.de/">Finanz-Szene</a> · gestern</div></div>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Recipe -->
-    <div class="sec">
-      <div class="eyebrow">Gesund &amp; schnell · Chefkoch</div>
-      <a class="recipe" href="https://www.chefkoch.de/">
-        <div class="recipe-img"></div>
-        <div class="recipe-body">
-          <div class="r-title">One-Pot-Linsen-Curry mit Spinat</div>
-          <div class="r-meta">20 Min · <span class="star">★</span> 4,7 (320 Bew.)</div>
-          <div class="r-ing">Rote Linsen · Kokosmilch · Babyspinat</div>
-        </div>
-      </a>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Football all competitions, bottom -->
-    <div class="sec">
-      <div class="eyebrow">Fußball &amp; Co. · diese Woche <span class="count">alle Wettbewerbe · Platz in ( )</span></div>
-      <div style="margin-top:7px;">
-        <div class="game"><span class="g-when">Di 21:00</span><a class="g-team" href="https://fcbayern.com/de/termine">FC Bayern</a> <span class="g-pos">(3.)</span> <span class="g-opp">– Real Madrid</span> <span class="g-comp">Champions League</span></div>
-        <div class="game"><span class="g-when">Sa 15:30</span><a class="g-team" href="https://fcbayern.com/de/termine">FC Bayern</a> <span class="g-pos">(3.)</span> <span class="g-opp">– 1. FC Köln</span> <span class="g-comp">Bundesliga</span></div>
-        <div class="game"><span class="g-when">Mi 20:45</span><a class="g-team" href="https://www.preussen-muenster.de/">Preußen Münster</a> <span class="g-opp">– VfL Bochum</span> <span class="g-comp">DFB-Pokal</span></div>
-        <div class="game"><span class="g-when">So 13:30</span><a class="g-team" href="https://www.preussen-muenster.de/">Preußen Münster</a> <span class="g-pos">(8.)</span> <span class="g-opp">– Hertha BSC</span> <span class="g-comp">2. BL</span></div>
-        <div class="game"><span class="g-when">Sa 19:30</span><a class="g-team" href="https://www.unibaskets.de/">Uni Baskets</a> <span class="g-pos">(5.)</span> <span class="g-opp">– Phoenix Hagen</span> <span class="g-comp">ProA</span></div>
-        <div class="game"><span class="g-when">So 15:00</span><a class="g-team" href="https://www.fussball.de/verein/sv-mesum-westfalen/-/id/00ES8GN8TC00000PVV0AG08LVUPGND5I">SV Mesum</a> <span class="g-pos">(6.)</span> <span class="g-opp">– SC Hörstel</span> <span class="g-comp">Westfalenliga</span></div>
-      </div>
-    </div>
-
-    <div class="foot">
-      Überschriften verlinken auf die offizielle Quelle · <span class="flag">App-Funktion</span> = braucht Foto-/Health-Zugriff, in einer Mail nicht möglich.
-      <div class="illus">Designvorschau – News, Events, Spiele, Rezept, Presse-Treffer &amp; Fotos sind Beispiele. Wetter, Geburtstag, Agenda &amp; ADPKD sind echt.</div>
-    </div>
-
-  </div>
-</div>
-</body>
-</html>
+<meta name="theme-color" content="#FCFCFA"><title>Morning Briefing</title><style>
+*{box-sizing:border-box}body{margin:0;background:#FCFCFA;color:#1A1B1D;line-height:1.45;
+font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:600px;margin:0 auto;padding:24px 18px 44px}
+.card{background:#FFFFFF;border:1px solid #ECEBE6;border-radius:4px;overflow:hidden}
+a{color:inherit}
+.mast{padding:18px 26px 14px;border-bottom:1px solid #ECEBE6;display:flex;justify-content:space-between;align-items:baseline}
+.wordmark{font-size:12px;letter-spacing:.3em;text-transform:uppercase;font-weight:600}
+.submark{font-size:10.5px;color:#8C8B85;margin-top:3px}
+.date{font-size:12px;color:#8C8B85;font-style:italic;text-align:right}
+.greet{padding:13px 26px;border-bottom:1px solid #ECEBE6}
+.hi{font-size:14.5px;font-weight:600}
+.quote{margin-top:8px;font-size:12px;font-style:italic;color:#46484D}
+.quote .by{color:#8C8B85}
+.sec{padding:13px 26px}.divider{height:1px;background:#ECEBE6;margin:0 26px}
+.eyebrow{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:#33524F;font-weight:600}
+.eyebrow .count{color:#8C8B85;font-weight:500}
+.wx-grid{display:flex;margin-top:9px}
+.wx{flex:1;text-align:center;border-left:1px solid #ECEBE6;padding:0 1px}
+.wx:first-child{border-left:none}
+.wx-day{font-size:9px;color:#8C8B85;text-transform:uppercase}.wx-day.today{color:#1A1B1D;font-weight:700}
+.wx-ico{font-size:13px;margin:2px 0;color:#46484D}
+.wx-t{font-size:11px;font-weight:600}.wx-t .lo{color:#8C8B85;font-weight:400}
+.mkt-row{display:flex;align-items:center;gap:16px;margin-top:9px}
+.mkt{display:flex;align-items:baseline;gap:6px;text-decoration:none}
+.mkt .nm{font-size:9px;text-transform:uppercase;color:#8C8B85;font-weight:600}
+.mkt .vl{font-size:13.5px;font-weight:600;color:#1A1B1D}.mkt .ch{font-size:11px;font-weight:600}
+.mkt-sep{width:1px;height:18px;background:#ECEBE6}.up{color:#2F7D5B}.down{color:#A8453A}
+.item{padding:9px 0;border-top:1px solid #ECEBE6}.item:first-of-type{border-top:none;padding-top:8px}
+.item a.title{font-size:13.5px;font-weight:600;color:#1A1B1D;text-decoration:none;line-height:1.28}
+.summary{margin:3px 0 4px;font-size:12px;color:#46484D;line-height:1.4}
+.meta{font-size:10px;color:#8C8B85}.meta .src{color:#33524F;font-weight:600}
+.foot{padding:15px 26px 20px;border-top:1px solid #ECEBE6;font-size:10px;color:#8C8B85;line-height:1.5}
+</style></head><body><div class="wrap"><div class="card">
+<div class="mast"><div><div class="wordmark">Morning Briefing</div><div class="submark">für Daniel Overesch</div></div>
+<div class="date">Sunday, 28. June 2026</div></div>
+<div class="greet"><div class="hi">Guten Morgen, Daniel</div>
+<div class="quote">Der Anfang ist die Hälfte des Ganzen. <span class="by">— Aristoteles</span></div></div>
+<div class="sec"><div class="eyebrow">Wetter <span class="count">10 Tage · Münster</span></div>
+<div class="wx-grid"><div class="wx"><div class="wx-day today">So</div><div class="wx-ico">☂︎</div><div class="wx-t">34<span class="lo">/24</span></div></div><div class="wx"><div class="wx-day ">Mo</div><div class="wx-ico">☁︎</div><div class="wx-t">29<span class="lo">/22</span></div></div><div class="wx"><div class="wx-day ">Di</div><div class="wx-ico">☁︎</div><div class="wx-t">28<span class="lo">/19</span></div></div><div class="wx"><div class="wx-day ">Mi</div><div class="wx-ico">☁︎</div><div class="wx-t">28<span class="lo">/17</span></div></div><div class="wx"><div class="wx-day ">Do</div><div class="wx-ico">☂︎</div><div class="wx-t">27<span class="lo">/15</span></div></div><div class="wx"><div class="wx-day ">Fr</div><div class="wx-ico">☁︎</div><div class="wx-t">24<span class="lo">/15</span></div></div><div class="wx"><div class="wx-day ">Sa</div><div class="wx-ico">☁︎</div><div class="wx-t">26<span class="lo">/17</span></div></div><div class="wx"><div class="wx-day ">So</div><div class="wx-ico">☁︎</div><div class="wx-t">27<span class="lo">/15</span></div></div><div class="wx"><div class="wx-day ">Mo</div><div class="wx-ico">☀︎</div><div class="wx-t">29<span class="lo">/17</span></div></div><div class="wx"><div class="wx-day ">Di</div><div class="wx-ico">☁︎</div><div class="wx-t">35<span class="lo">/20</span></div></div></div></div>
+<div class="divider"></div>
+<div class="sec"><div class="eyebrow">Märkte <span class="count">Stand 6:30</span></div>
+<div class="mkt-row"><a class="mkt" href="https://www.boerse-frankfurt.de/index/dax"><span class="nm">DAX</span><span class="vl">24.671</span><span class="ch down">▼-1,26%</span></a><div class="mkt-sep"></div><a class="mkt" href="https://www.ishares.com/us/products/239696/"><span class="nm">MSCI World</span><span class="vl">197,36$</span><span class="ch down">▼-2,65%</span></a></div></div>
+<div class="divider"></div>
+<div class="sec"><div class="eyebrow">Politik &amp; Welt <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://www.tagesschau.de/inland/temperatur-hoechstwert-sonntag-100.html">Erneuter Temperaturhöchstwert in Deutschland</a><div class="summary">In Deutschland wurde zum dritten Mal hintereinander ein neuer Temperaturhöchstwert mit 41,7 Grad gemessen.</div><div class="meta"><span class="src">Tagesschau</span></div></div><div class="item"><a class="title" href="https://www.tagesschau.de/inland/waldbraende-gohrischheide-bad-kreuznach-100.html">Feuerwehren im Großeinsatz: Kampf gegen Waldbrände - und die Munition im Boden</a><div class="summary">Feuerwehren bekämpfen in Deutschland Waldbrände, wobei alte Kampfmittel im Boden Einsätze erschweren und Explosionen verursachen.</div><div class="meta"><span class="src">Tagesschau</span></div></div><div class="item"><a class="title" href="https://www.tagesschau.de/newsticker/liveblog-hitze-sonntag-100.html">Hitze-Liveblog: ++ Klimaexpertin: &quot;So eine Hitzewelle vor 50 Jahren nicht möglich&quot; ++</a><div class="summary">Laut einer Klimaexpertin wäre die aktuelle Hitzewelle mit ihren extremen Temperaturen vor 50 Jahren noch nicht möglich gewesen.</div><div class="meta"><span class="src">Tagesschau</span></div></div></div></div><div class="divider"></div><div class="sec"><div class="eyebrow">Wirtschaft &amp; Finanzen <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://www.handelsblatt.com/finanzen/maerkte/marktberichte/maerkte-insight-spacex-spuert-die-schwerkraft-der-maerkte/100234825.html">Märkte-Insight: SpaceX spürt die Schwerkraft der Märkte</a><div class="summary">SpaceX muss zwischen ehrgeizigen Visionen und wirtschaftlichen Realitäten abwägen, was für die Aktie einen entscheidenden Test darstellt.</div><div class="meta"><span class="src">Handelsblatt</span></div></div><div class="item"><a class="title" href="https://www.handelsblatt.com/finanzen/maerkte/anleihen/anleihen-europas-firmen-fuerchten-emissions-nachteile-durch-big-tech/100233325.html">Anleihen: Big Tech begibt Milliarden-Anleihen im Euro-Raum: Was bedeutet das für europäische Firmen-Bonds?</a><div class="summary">Großtechnologieunternehmen aus den USA begeben verstärkt Anleihen im Euro-Raum und beeinflussen damit europäische Unternehmensanleihen.</div><div class="meta"><span class="src">Handelsblatt</span></div></div><div class="item"><a class="title" href="https://www.handelsblatt.com/finanzen/banken-versicherungen/banken/mit-14-aktionaer-mir-geht-es-um-kapitalvermehrung/100233563.html">Jung-Investor: Mit 14 Aktionär: „Mir geht es um Kapitalvermehrung“</a><div class="summary">Der 14-jährige Daniel Erb investiert seit seinem zwölften Lebensjahr eigenständig in Aktien und trat dieses Jahr als Redner auf zwei Hauptversammlungen auf.</div><div class="meta"><span class="src">Handelsblatt</span></div></div></div></div><div class="divider"></div><div class="sec"><div class="eyebrow">Künstliche Intelligenz &amp; Tech <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMiX0FVX3lxTE9hVEJOYk5oRkZRSVM0SFU0WU9BWm1XNXlsdzZMUVU2VThvd05yLThoZkc3N0l0ZmJoUjZ6YWl2NUZZMzEtcWtxTTctWUNOdXNKMGxfMVpIVWxrUk5hb2lV?oc=5">Generative artificial intelligence creates delicious, sustainable, and nutritious burgers | npj Science of Food - Nature</a><div class="summary">Generative künstliche Intelligenz entwickelt schmackhafte, nachhaltige und nährstoffreiche Burger-Rezepturen.</div><div class="meta"><span class="src">KI-News</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMingFBVV95cUxNT3RXRjBZTnViZ3hQWjE4eVBoczVKYWFlMUY0bk9NcVhMVnVWaU52QjFTOFBMQ1VDY2tHLXhkZE9HR2hiSS05WUNDRWlQSkJGZ0ozckxsYTZnNEppN0ZtbnNMTnQ0VzZRU1lVN2ZIY1JOVUhMZ0x0MUc2OGJhdzl4aGNaaVNZVllpSFZoQnZaTVEtMG9NcWxzRzJ6X0VSZw?oc=5">Police use of artificial intelligence grows as rules lag behind - Stateline</a><div class="summary">Polizeibehörden setzen zunehmend künstliche Intelligenz ein, während entsprechende rechtliche Regelungen noch nicht ausreichend entwickelt sind.</div><div class="meta"><span class="src">KI-News</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMilwFBVV95cUxNTU82NjdmRGdrWmY0bEp2VW80VDVtYTNtTHZFa3VReXJvanFPbGhkNWZ1ckV2WWRuNUZCS1pwR0ZPRzlULXc4ckNYVl9lNk1MNXk1Zk9JM09WekN3QzJDV256Y1AtNHU5YTZZY2hxT3dvV1lmZU9MZllUYTJCelEyVmY4SW5sOFhfTjJLcHc4SlJBdkw3X0Jr?oc=5">SpaceX Just Spent $60 Billion on Artificial Intelligence (AI). Could Elon Musk Be Building the Next Amazon? - Yahoo Finance</a><div class="summary">SpaceX hat 60 Milliarden Dollar in künstliche Intelligenz investiert, was darauf hindeutet, dass Elon Musk möglicherweise ein Amazon-ähnliches Unternehmen aufbaut.</div><div class="meta"><span class="src">KI-News</span></div></div></div></div><div class="divider"></div><div class="sec"><div class="eyebrow">Mesum &amp; Rheine <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMic0FVX3lxTFBxTVNMZHc0QXgyR2xDc2I2SXBPZm0zbmtWbU5MSEtINWpZb21ONkYyRmhwOWVMZ0MtOXdOWTNieEVlNDR6MWpiX3k4Q3hiTHhLTDJvTG1KTml3VmZPbkd5RUNlUENNMzhoenIyV3ppUzRBWjQ?oc=5">Rheine nach den Unwettern - radio rst</a><div class="summary">Nach schweren Unwettern in Rheine untersucht Radio RST die Schäden und Folgen für die betroffene Stadt.</div><div class="meta"><span class="src">MV / Lokal</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMiUkFVX3lxTE1lMVZTX2hqckEzYzF4NlktS2pYZ3NobjNXQkpOTWVkelJqMUNEc2k3RHZZVUlSQVBCWGFTT0tVbGc4cWdtc0tGWFJKcFJBSldXMEE?oc=5">Stadt Rheine: „Da müssen wir besser werden“ - MV online</a><div class="summary">Die Stadt Rheine erklärt, in bestimmten Bereichen Verbesserungen vornehmen zu müssen.</div><div class="meta"><span class="src">MV / Lokal</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMirgFBVV95cUxQWVpza3I4bXRoZlNiN2ZPNDY3VEo4ZFYtQXpuN3hKQWhpWlNTc1otc0V2dENmdVM3bERMSGkzTWtxdTk2T0tmQjM3UTNydUd5aURHWXVvQWZRdEdxNWhmY1Nnb2lDc29ZcHVmX1VPekV0dW1Cc0g0N1ZVVHFJWmo2WjBxcWFUTVYzZjYyZ1BkbFZ0NGZXSVM1SEJONkF2WHhuYmpEMWE0RUxrSkhodEE?oc=5">Kreissparkasse Steinfurt und Stadtsparkasse Rheine beschließen Fusion - wirtschaft-aktuell.de</a><div class="summary">Die Kreissparkasse Steinfurt und die Stadtsparkasse Rheine haben ihre Fusion beschlossen.</div><div class="meta"><span class="src">MV / Lokal</span></div></div></div></div><div class="divider"></div><div class="sec"><div class="eyebrow">Genossenschaftsbanken &amp; Atruvia <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMisgFBVV95cUxOZW91ZnJualV2M0R1RE0xcExyZGF1OGpWOXQwSThQRXBvZ1lJVTZGY2poSFBFbC1laXBuTnVlTVVsNUh4ZjVNd0Fxc18ydjZKVVFVZmNHbkFzenJ4cTdBdnhaUTB6WkYySmhCLTd6VEE2T2hTVS1FWXJCLXFBaE9JZW5jN1QzTEQ5RF9ac1hPZHB1dGEyU0dNOWNPandWUk91LWJEU0dMZHpLOXpVYk9uT1hn?oc=5">Atruvia, Genoverband und GVB wollen Beratungs-Aktivitäten zusammenlegen - Finanz-Szene.de</a><div class="summary">Atruvia, Genoverband und GVB planen die Zusammenlegung ihrer Beratungsaktivitäten.</div><div class="meta"><span class="src">Geno-News</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMitAFBVV95cUxOLW1tRXI2NEJwdFNpY2VSdUxTTnBKSEVLVWZtSjFHbk9iSnU5SnlHdDlxUmJ0b081QzdmdmhGeDVTbFFpTjdpYUwyblBrNkxhd2ZwRnE4cm1BSWpyRXZ1ZDM5bFh3UE5aRlhJYWl4T0F2QzRGY25Ccko0aHRjTWlteTBGQjJHR1hLT3hrZVJQYTVmY0tiVVVuLUF4MFlJYm5vMGozWWJndTh0UVJ0SG1JdjNNQks?oc=5">Warum Atruvia, Genoverband und GVB über die Bündelung ihrer Beratungsaktivitäten nachdenken - IT Finanzmagazin</a><div class="summary">Atruvia, Genoverband und GVB erwägen eine Bündelung ihrer Beratungsaktivitäten zur Effizienzsteigerung.</div><div class="meta"><span class="src">Geno-News</span></div></div><div class="item"><a class="title" href="https://news.google.com/rss/articles/CBMidEFVX3lxTFBVYzlZTHVKay1UaGtpMGh3c0dlOU50QVBRWDdpUDUtdFJ5QlNzUW9PT1hFMFJNMmhfbjAxSW96V0NkaDVEQnFOM0F1UGUxQUxFbWNKZGJsT09rc1JuOWljamZTdm1YS1QyUGdJMzVQemtONlFE?oc=5">Atruvia und Geno-Verbände prüfen engere Zusammenarbeit in der Bankenberatung - FinanzBusiness</a><div class="summary">Atruvia und Geno-Verbände prüfen derzeit eine intensivere Zusammenarbeit im Bereich der Bankenberatung.</div><div class="meta"><span class="src">Geno-News</span></div></div></div></div><div class="divider"></div><div class="sec"><div class="eyebrow">FC Bayern <span class="count">3</span></div><div style="margin-top:8px;"><div class="item"><a class="title" href="https://fcbinside.de/2026/06/28/bayern-star-stanisic-ueber-dfb-team-traue-ihnen-alles-zu/">Bayern-Star Stanisic über DFB-Team: “Traue ihnen alles zu”</a><div class="summary">Bayern-Profi Stanisic vertraut der deutschen Nationalmannschaft trotz mittelmäßiger Leistungen in der WM-Qualifikation alles zu.</div><div class="meta"><span class="src">FCBinside</span></div></div><div class="item"><a class="title" href="https://fcbinside.de/2026/06/28/es-geht-um-kimmich-was-matthaeus-an-nagelsmann-verwundert/">Es geht um Kimmich: Was Matthäus an Nagelsmann verwundert</a><div class="summary">Matthäus kritisiert Nagelsmanns Umgang mit Bayern-Spieler Kimmich während der WM 2026-Gruppenphase der Nationalmannschaft.</div><div class="meta"><span class="src">FCBinside</span></div></div><div class="item"><a class="title" href="https://fcbinside.de/2026/06/28/unter-50-prozent-neuers-wm-quote-ein-grund-zur-sorge-2/">Unter 50 Prozent! Neuers WM-Quote ein Grund zur Sorge?</a><div class="summary">Manuel Neuers Rückkehr zur Nationalelf wird intensiv diskutiert, obwohl Ruhe für die WM-Vorbereitung wichtiger wäre.</div><div class="meta"><span class="src">FCBinside</span></div></div></div></div>
+<div class="foot">Automatisch erzeugt um 06:30 · Überschriften verlinken auf die Originalquelle.
+Persönliche Blöcke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</div>
+</div></div></body></html>

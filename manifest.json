@@ -1,11 +1,1 @@
-{
-  "name": "Morning Briefing für Daniel Overesch",
-  "short_name": "Briefing",
-  "start_url": "./index.html",
-  "scope": "./",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#FCFCFA",
-  "theme_color": "#FCFCFA",
-  "lang": "de"
-}
+{"name":"Morning Briefing f\u00fcr Daniel Overesch","short_name":"Briefing","start_url":"./index.html","scope":"./","display":"standalone","background_color":"#FCFCFA","theme_color":"#FCFCFA","lang":"de"}
