@@ -12,13 +12,32 @@ sondern kommen später im iPhone-Kurzbefehl (Etappe 3) – die bleiben am Gerät
 Läuft automatisch per GitHub Actions. Nichts manuell starten.
 """
 
-import os, html, datetime as dt
+import os, re, html, json, calendar, datetime as dt
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import requests, feedparser
 
 # ---------------------------------------------------------------- Konfiguration
 NAME = "Daniel"
 LAT, LON = 51.96, 7.63          # Münster
-MAX_PER_CLUSTER = 3
+TZ = ZoneInfo("Europe/Berlin")
+
+MAX_PER_CLUSTER     = 3          # angezeigte Meldungen je Cluster
+CANDIDATES_PER_FEED = 15         # vorher ziehen, dann filtern (Backfill-Reserve)
+MAX_AGE_HOURS       = 36         # nur frische Meldungen (sonst Fallback: neuestes)
+DUP_THRESHOLD       = 0.5        # Titel-Ähnlichkeit fürs deterministische Netz
+
+# Nicht-News / Müll aussortieren (Domain-Teilstrings + Titel-Muster)
+BLOCK_DOMAINS = ("wetter.com", "wetter.de")
+BLOCK_TITLE   = (re.compile(r"\b\d-tage", re.I), re.compile(r"übersicht", re.I),
+                 re.compile(r"livestream", re.I))
+
+GERMAN_STOP = {
+    "der","die","das","und","oder","in","im","den","dem","von","mit","für","auf",
+    "zu","über","nach","bei","aus","ist","sind","wird","werden","wollen","will",
+    "ein","eine","einen","am","an","als","auch","sich","dass","wir","ihre","ihr",
+    "sein","seine","mehr","neue","neuer","vor","beim","zur","zum","des","um",
+}
 
 # Nachrichten-Cluster in Anzeige-Reihenfolge: (Titel, [Feed-URLs], Quellenname)
 CLUSTERS = [
@@ -109,14 +128,94 @@ def summarize(title, raw):
         s = clean.split(". ")[0]
         return (s[:150] + "\u2026") if len(s) > 150 else s
 
-def get_cluster(feeds):
-    items = []
-    for url in feeds:
-        for e in feedparser.parse(url).entries[:MAX_PER_CLUSTER]:
-            items.append(e)
-        if items:
+# ---------------------------------------------------------------- Dedup-Hilfen
+def _toks(title):
+    t = (title or "").lower().split(" - ")[0]        # Outlet-Suffix abschneiden
+    t = re.sub(r"[^a-zäöüß0-9 ]", " ", t)
+    return {w[:6] for w in t.split() if len(w) > 2 and w not in GERMAN_STOP}
+
+def _dup(a, b, thr=DUP_THRESHOLD):
+    ta, tb = _toks(a), _toks(b)
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / min(len(ta), len(tb)) >= thr   # Overlap-Koeffizient
+
+def _entry_dt(e):
+    for k in ("published_parsed", "updated_parsed"):
+        v = e.get(k)
+        if v:
+            return datetime.fromtimestamp(calendar.timegm(v), tz=timezone.utc)
+    return None
+
+def _blocked(e):
+    link = (e.get("link") or "").lower()
+    if any(d in link for d in BLOCK_DOMAINS):
+        return True
+    title = e.get("title") or ""
+    return any(p.search(title) for p in BLOCK_TITLE)
+
+def _llm_distinct(cands, n, key):
+    """Haiku wählt n inhaltlich verschiedene Schlagzeilen (paraphrasensicher)."""
+    import anthropic
+    lines = "\n".join("%d. %s" % (i, c.get("title", "")) for i, c in enumerate(cands))
+    prompt = ("Hier nummerierte Nachrichten-Schlagzeilen. Mehrere können DIESELBE "
+              "Story sein (andere Quelle/Formulierung). Wähle %d, die INHALTLICH "
+              "VERSCHIEDENE Geschichten abdecken – pro Story nur die "
+              "aussagekräftigste. Antworte NUR mit JSON-Array der Indizes, "
+              "wichtigste zuerst, z.B. [0,3,7].\n\n%s" % (n, lines))
+    msg = anthropic.Anthropic(api_key=key).messages.create(
+        model="claude-haiku-4-5-20251001", max_tokens=60,
+        messages=[{"role": "user", "content": prompt}])
+    raw = msg.content[0].text.strip().strip("`")
+    if raw.lower().startswith("json"):
+        raw = raw[4:]
+    idx = json.loads(raw[raw.index("["):raw.rindex("]") + 1])
+    seen, out = set(), []
+    for i in idx:
+        if isinstance(i, int) and 0 <= i < len(cands) and i not in seen:
+            seen.add(i); out.append(cands[i])
+    return out[:n]
+
+def _dedupe_simple(cands, n):
+    """Deterministisches Netz, falls kein API-Key / Fehler."""
+    out = []
+    for c in cands:
+        if not any(_dup(c.get("title", ""), o.get("title", "")) for o in out):
+            out.append(c)
+        if len(out) >= n:
             break
-    return items[:MAX_PER_CLUSTER]
+    return out
+
+def dedupe_pick(cands, n):
+    if len(cands) <= 1:
+        return cands[:n]
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key and len(cands) > n:
+        try:
+            picked = _llm_distinct(cands, n, key)
+            if picked:
+                return picked
+        except Exception:
+            pass
+    return _dedupe_simple(cands, n)
+
+def get_cluster(feeds):
+    """Holt viele Kandidaten, filtert Müll, hält nur Frisches, sortiert neu→alt."""
+    now = datetime.now(timezone.utc)
+    cand, seen_links = [], set()
+    for url in feeds:
+        for e in feedparser.parse(url).entries[:CANDIDATES_PER_FEED]:
+            link = e.get("link", "")
+            if (link and link in seen_links) or _blocked(e):
+                continue
+            seen_links.add(link)
+            cand.append((_entry_dt(e), e))
+    # neueste zuerst; undatierte ans Ende
+    cand.sort(key=lambda x: x[0] or datetime(1970, 1, 1, tzinfo=timezone.utc),
+              reverse=True)
+    fresh = [e for ts, e in cand
+             if ts is None or (now - ts) <= timedelta(hours=MAX_AGE_HOURS)]
+    return fresh if fresh else [e for _, e in cand]   # Fallback: nichts Frisches
 
 # ---------------------------------------------------------------- HTML
 def esc(s): return html.escape(s or "")
@@ -146,10 +245,18 @@ def render_markets(mk):
     return "".join(parts)
 
 def render_clusters():
+    shown = []                                  # cluster-übergreifende Titel
     out = ""
     for i, (title, feeds, src) in enumerate(CLUSTERS):
-        items = get_cluster(feeds)
-        if not items: continue
+        cands = get_cluster(feeds)
+        # schon in einem früheren Cluster gezeigte Story hier rauswerfen
+        cands = [c for c in cands
+                 if not any(_dup(c.get("title", ""), s) for s in shown)]
+        items = dedupe_pick(cands, MAX_PER_CLUSTER)
+        if not items:
+            continue
+        for it in items:
+            shown.append(it.get("title", ""))
         rows = ""
         for e in items:
             rows += ('<div class="item"><a class="title" href="%s">%s</a>'
@@ -164,6 +271,9 @@ def render_clusters():
 
 def build():
     days, mk = get_weather(), get_markets()
+    now_local = dt.datetime.now(TZ)
+    stand = now_local.strftime("%H:%M")
+    built = now_local.strftime("%d.%m. %H:%M")
     quote = QUOTES[dt.date.today().weekday() % len(QUOTES)]
     datum = dt.date.today().strftime("%A, %d. %B %Y")
     page = """<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
@@ -212,14 +322,15 @@ a{color:inherit}
 <div class="sec"><div class="eyebrow">Wetter <span class="count">10 Tage \xb7 M\xfcnster</span></div>
 <div class="wx-grid">%(wx)s</div></div>
 <div class="divider"></div>
-<div class="sec"><div class="eyebrow">M\xe4rkte <span class="count">Stand 6:30</span></div>
+<div class="sec"><div class="eyebrow">M\xe4rkte <span class="count">Stand %(stand)s</span></div>
 <div class="mkt-row">%(mk)s</div></div>
 <div class="divider"></div>
 %(clusters)s
-<div class="foot">Automatisch erzeugt um 06:30 \xb7 \xdcberschriften verlinken auf die Originalquelle.
+<div class="foot">Automatisch erzeugt %(built)s \xb7 \xdcberschriften verlinken auf die Originalquelle.
 Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</div>
 </div></div></body></html>""" % dict(
         C, datum=datum, name=NAME, qt=esc(quote[0]), qa=esc(quote[1]),
+        stand=stand, built=built,
         wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters())
 
     with open("index.html", "w", encoding="utf-8") as f:
