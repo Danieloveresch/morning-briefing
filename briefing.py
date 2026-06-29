@@ -89,7 +89,7 @@ WD = ["Mo","Di","Mi","Do","Fr","Sa","So"]
 # ---------------------------------------------------------------- Datenholen
 def get_weather():
     u = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
-         "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
          "&timezone=Europe/Berlin&forecast_days=10" % (LAT, LON))
     d = requests.get(u, timeout=20).json()["daily"]
     out = []
@@ -97,6 +97,7 @@ def get_weather():
         date = dt.date.fromisoformat(iso)
         out.append(dict(day=WD[date.weekday()], ico=WMO.get(d["weather_code"][i], "\u2601"),
                         hi=round(d["temperature_2m_max"][i]), lo=round(d["temperature_2m_min"][i]),
+                        rain=d["precipitation_probability_max"][i] or 0,
                         today=(i == 0)))
     return out
 
@@ -253,8 +254,9 @@ def render_weather(days):
     for d in days:
         cls = "today" if d["today"] else ""
         cells += ('<div class="wx"><div class="wx-day %s">%s</div><div class="wx-ico">%s\ufe0e</div>'
-                  '<div class="wx-t">%d<span class="lo">/%d</span></div></div>'
-                  % (cls, d["day"], d["ico"], d["hi"], d["lo"]))
+                  '<div class="wx-t">%d<span class="lo">/%d</span></div>'
+                  '<div class="wx-r">%d%%</div></div>'
+                  % (cls, d["day"], d["ico"], d["hi"], d["lo"], d["rain"]))
     return cells
 
 def render_markets(mk):
@@ -366,6 +368,7 @@ a{color:inherit}
 .wx-day{font-size:9px;color:%(meta)s;text-transform:uppercase}.wx-day.today{color:%(ink)s;font-weight:700}
 .wx-ico{font-size:13px;margin:2px 0;color:%(ink_soft)s}
 .wx-t{font-size:11px;font-weight:600}.wx-t .lo{color:%(meta)s;font-weight:400}
+.wx-r{font-size:8.5px;color:%(cool)s;margin-top:1px}
 .mkt-row{display:flex;align-items:center;gap:16px;margin-top:9px}
 .mkt{display:flex;align-items:baseline;gap:6px;text-decoration:none}
 .mkt .nm{font-size:9px;text-transform:uppercase;color:%(meta)s;font-weight:600}
