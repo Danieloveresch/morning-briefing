@@ -2,7 +2,12 @@ name: Build Morning Briefing
 
 on:
   schedule:
-    - cron: '0 4 * * *'      # taeglich ~06:00 Berlin (fertig vor 06:30)
+    # GitHub plant in UTC und verzögert geplante Jobs oft 15–60 Min, am stärksten
+    # zur vollen Stunde. Daher: früh, off-hour, mehrfach gestaffelt. Der frischeste
+    # Lauf, der vor 06:30 Berlin fertig wird, gewinnt (jeder Lauf überschreibt).
+    - cron: '23 1 * * *'    # 01:23 UTC → 03:23 Sommer / 02:23 Winter
+    - cron: '23 2 * * *'    # 02:23 UTC → 04:23 Sommer / 03:23 Winter
+    - cron: '23 3 * * *'    # 03:23 UTC → 05:23 Sommer / 04:23 Winter  (frischester)
   workflow_dispatch:           # erlaubt manuellen Start per Knopf
 
 permissions:
