@@ -67,6 +67,16 @@ QUOTES = [
     ("Das Geheimnis des Vorwärtskommens besteht darin, den ersten Schritt zu tun.", "Mark Twain"),
 ]
 
+# Podcasts: (Anzeigename, Suchbegriff). Der Feed wird per Apple-Podcast-Suche
+# automatisch aufgelöst -> keine fragilen Feed-URLs, die veralten.
+PODCASTS = [
+    ("Lanz & Precht",     "Lanz Precht"),
+    ("Betreutes Fühlen",  "Betreutes Fühlen Atze Leon Windscheid"),
+    ("Lage der Nation",   "Lage der Nation Banse Buermeyer"),
+    ("OMR",               "OMR Podcast Westermeyer"),
+    ("Finance Forward",   "Finance Forward"),
+]
+
 C = dict(paper="#FCFCFA", card="#FFFFFF", ink="#1A1B1D", ink_soft="#46484D",
          meta="#8C8B85", hair="#ECEBE6", accent="#33524F", warm="#C2613B",
          cool="#5E7E97", mild="#8FA68C")
@@ -287,8 +297,42 @@ def render_clusters():
                 '<div style="margin-top:8px;">%s</div></div>' % (div, esc(title), len(items), rows))
     return out
 
+def get_podcasts():
+    """Neueste Folge je Show. Feed wird via Apple-Podcast-Suche aufgeloest."""
+    out = []
+    for name, term in PODCASTS:
+        try:
+            r = requests.get("https://itunes.apple.com/search",
+                             params={"media": "podcast", "limit": 1, "term": term},
+                             headers={"User-Agent": "Mozilla/5.0"}, timeout=20).json()
+            feed_url = r["results"][0]["feedUrl"]
+            e = feedparser.parse(feed_url).entries[0]
+            topic = _strip(e.get("title", ""))
+            desc = _strip(e.get("summary", "") or e.get("subtitle", ""))
+            if desc and len(desc) > 150:
+                desc = desc[:150] + "\u2026"
+            out.append(dict(name=name, link=e.get("link", feed_url),
+                            topic=topic, desc=desc))
+        except Exception:
+            continue
+    return out
+
+def render_podcasts(pods):
+    if not pods:
+        return ""
+    rows = ""
+    for p in pods:
+        desc = ('<div class="pod-desc">%s</div>' % esc(p["desc"])) if p["desc"] else ""
+        rows += ('<div class="pod"><a class="pod-name" href="%s">%s</a>'
+                 '<div class="pod-topic">%s</div>%s</div>'
+                 % (esc(p["link"]), esc(p["name"]), esc(p["topic"]), desc))
+    return ('<div class="divider"></div><div class="sec">'
+            '<div class="eyebrow">Podcasts <span class="count">neueste Folgen</span></div>'
+            '<div style="margin-top:8px;">%s</div></div>' % rows)
+
 def build():
     days, mk = get_weather(), get_markets()
+    pods = get_podcasts()
     now_local = dt.datetime.now(TZ)
     stand = now_local.strftime("%H:%M")
     built = now_local.strftime("%d.%m. %H:%M")
@@ -331,6 +375,10 @@ a{color:inherit}
 .item a.title{font-size:13.5px;font-weight:600;color:%(ink)s;text-decoration:none;line-height:1.28}
 .summary{margin:3px 0 4px;font-size:12px;color:%(ink_soft)s;line-height:1.4}
 .meta{font-size:10px;color:%(meta)s}.meta .src{color:%(accent)s;font-weight:600}
+.pod{padding:8px 0;border-top:1px solid %(hair)s;font-size:12px}.pod:first-of-type{border-top:none}
+.pod-name{font-weight:600;color:%(accent)s;text-decoration:none;display:block}
+.pod-topic{color:%(ink)s;margin-top:2px;line-height:1.35}
+.pod-desc{color:%(ink_soft)s;margin-top:2px;line-height:1.35;font-size:11.5px}
 .foot{padding:15px 26px 20px;border-top:1px solid %(hair)s;font-size:10px;color:%(meta)s;line-height:1.5}
 </style></head><body><div class="wrap"><div class="card">
 <div class="mast"><div><div class="wordmark">Morning Briefing</div><div class="submark">f\xfcr Daniel Overesch</div></div>
@@ -344,12 +392,14 @@ a{color:inherit}
 <div class="mkt-row">%(mk)s</div></div>
 <div class="divider"></div>
 %(clusters)s
+%(podcasts)s
 <div class="foot">Automatisch erzeugt %(built)s \xb7 \xdcberschriften verlinken auf die Originalquelle.
 Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</div>
 </div></div></body></html>""" % dict(
         C, datum=datum, name=NAME, qt=esc(quote[0]), qa=esc(quote[1]),
         stand=stand, built=built,
-        wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters())
+        wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters(),
+        podcasts=render_podcasts(pods))
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(page)
