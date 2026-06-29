@@ -23,9 +23,16 @@ LAT, LON = 51.96, 7.63          # Münster
 TZ = ZoneInfo("Europe/Berlin")
 
 MAX_PER_CLUSTER     = 3          # angezeigte Meldungen je Cluster
-CANDIDATES_PER_FEED = 15         # vorher ziehen, dann filtern (Backfill-Reserve)
-MAX_AGE_HOURS       = 36         # nur frische Meldungen (sonst Fallback: neuestes)
+CANDIDATES_PER_FEED = 20         # vorher ziehen, dann filtern (Backfill-Reserve)
+DEFAULT_AGE_HOURS   = 30         # bevorzugtes Frischefenster (schnelle Cluster)
+HARD_MAX_DAYS       = 10         # älter als das wird nie gezeigt
 DUP_THRESHOLD       = 0.5        # Titel-Ähnlichkeit fürs deterministische Netz
+
+# Nischen-Cluster aktualisieren selten -> größeres Fenster, damit aufgefüllt wird
+AGE_BY_CLUSTER = {
+    "Mesum & Rheine":                  120,   # lokal -> bis 5 Tage zurück
+    "Genossenschaftsbanken & Atruvia": 120,   # Fachnische -> bis 5 Tage zurück
+}
 
 # Nicht-News / Müll aussortieren (Domain-Teilstrings + Titel-Muster)
 BLOCK_DOMAINS = ("wetter.com", "wetter.de")
@@ -158,11 +165,15 @@ def _llm_distinct(cands, n, key):
     """Haiku wählt n inhaltlich verschiedene Schlagzeilen (paraphrasensicher)."""
     import anthropic
     lines = "\n".join("%d. %s" % (i, c.get("title", "")) for i, c in enumerate(cands))
-    prompt = ("Hier nummerierte Nachrichten-Schlagzeilen. Mehrere können DIESELBE "
-              "Story sein (andere Quelle/Formulierung). Wähle %d, die INHALTLICH "
-              "VERSCHIEDENE Geschichten abdecken – pro Story nur die "
-              "aussagekräftigste. Antworte NUR mit JSON-Array der Indizes, "
-              "wichtigste zuerst, z.B. [0,3,7].\n\n%s" % (n, lines))
+    prompt = ("Hier nummerierte Nachrichten-Schlagzeilen. Manche berichten über "
+              "DASSELBE Ereignis bzw. dieselbe Meldung (nur andere Quelle oder "
+              "Formulierung) – die sind Dubletten. Wähle %d Schlagzeilen, die "
+              "VERSCHIEDENE Ereignisse abdecken; pro Ereignis nur die "
+              "aussagekräftigste. Behandle zwei nur dann als gleich, wenn es "
+              "wirklich dieselbe Nachricht ist – nicht bloß dasselbe Thema. "
+              "Wenn es weniger verschiedene Ereignisse als %d gibt, gib entsprechend "
+              "weniger zurück. Antworte NUR mit JSON-Array der Indizes, wichtigste "
+              "zuerst, z.B. [0,3,7].\n\n%s" % (n, n, lines))
     msg = anthropic.Anthropic(api_key=key).messages.create(
         model="claude-haiku-4-5-20251001", max_tokens=60,
         messages=[{"role": "user", "content": prompt}])
@@ -199,23 +210,30 @@ def dedupe_pick(cands, n):
             pass
     return _dedupe_simple(cands, n)
 
-def get_cluster(feeds):
-    """Holt viele Kandidaten, filtert Müll, hält nur Frisches, sortiert neu→alt."""
+def get_cluster(feeds, max_age_h):
+    """Holt viele Kandidaten, filtert Müll, sortiert neu→alt.
+    Bevorzugt frische Meldungen (< max_age_h), hängt aber ältere als
+    Auffüll-Reserve hinten an, damit der Block auf MAX_PER_CLUSTER kommt.
+    Wirklich Altes (> HARD_MAX_DAYS) fliegt ganz raus."""
     now = datetime.now(timezone.utc)
+    hard = timedelta(days=HARD_MAX_DAYS)
     cand, seen_links = [], set()
     for url in feeds:
         for e in feedparser.parse(url).entries[:CANDIDATES_PER_FEED]:
             link = e.get("link", "")
             if (link and link in seen_links) or _blocked(e):
                 continue
+            ts = _entry_dt(e)
+            if ts and (now - ts) > hard:      # uralt -> weg
+                continue
             seen_links.add(link)
-            cand.append((_entry_dt(e), e))
-    # neueste zuerst; undatierte ans Ende
+            cand.append((ts, e))
     cand.sort(key=lambda x: x[0] or datetime(1970, 1, 1, tzinfo=timezone.utc),
-              reverse=True)
-    fresh = [e for ts, e in cand
-             if ts is None or (now - ts) <= timedelta(hours=MAX_AGE_HOURS)]
-    return fresh if fresh else [e for _, e in cand]   # Fallback: nichts Frisches
+              reverse=True)                   # neueste zuerst
+    win = timedelta(hours=max_age_h)
+    fresh = [e for ts, e in cand if ts and (now - ts) <= win]
+    older = [e for ts, e in cand if not (ts and (now - ts) <= win)]
+    return fresh + older                      # frisch zuerst, Rest als Backfill
 
 # ---------------------------------------------------------------- HTML
 def esc(s): return html.escape(s or "")
@@ -248,7 +266,7 @@ def render_clusters():
     shown = []                                  # cluster-übergreifende Titel
     out = ""
     for i, (title, feeds, src) in enumerate(CLUSTERS):
-        cands = get_cluster(feeds)
+        cands = get_cluster(feeds, AGE_BY_CLUSTER.get(title, DEFAULT_AGE_HOURS))
         # schon in einem früheren Cluster gezeigte Story hier rauswerfen
         cands = [c for c in cands
                  if not any(_dup(c.get("title", ""), s) for s in shown)]
