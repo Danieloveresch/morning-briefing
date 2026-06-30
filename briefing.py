@@ -332,16 +332,345 @@ def render_podcasts(pods):
             '<div class="eyebrow">Podcasts <span class="count">neueste Folgen</span></div>'
             '<div style="margin-top:8px;">%s</div></div>' % rows)
 
+# ---------------------------------------------------------------- Rezept
+# Mehrere gesunde Rezept-Feeds; pro Tag wird der beste nach Gesundheit + Dauer
+# bewertet und gezeigt. Die Rezeptseiten liefern strukturierte Daten (JSON-LD).
+RECIPE_FEEDS = [
+    "https://www.skinnytaste.com/feed/",
+    "https://www.wellplated.com/feed/",
+    "https://www.loveandlemons.com/feed/",
+]
+
+_DUR = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?")
+
+def _minutes(v):
+    if not isinstance(v, str):
+        return None
+    m = _DUR.fullmatch(v.strip())
+    if not m:
+        return None
+    return (int(m.group(1) or 0) * 60 + int(m.group(2) or 0)) or None
+
+def _num(x):
+    try:
+        return float(re.sub(r"[^\d.]", "", str(x)) or 0) or None
+    except Exception:
+        return None
+
+def _img_url(v):
+    if isinstance(v, str):
+        return v
+    if isinstance(v, dict):
+        return v.get("url")
+    if isinstance(v, list) and v:
+        return _img_url(v[0])
+    return None
+
+def _jsonld_recipes(text):
+    out = []
+    for m in re.finditer(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', text, re.S | re.I):
+        try:
+            data = json.loads(m.group(1).strip())
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else \
+            data.get("@graph", [data]) if isinstance(data, dict) else []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            t = it.get("@type", "")
+            if t == "Recipe" or (isinstance(t, list) and "Recipe" in t):
+                out.append(it)
+    return out
+
+def _recipe_from(it, fallback_url):
+    name = it.get("name")
+    if not name:
+        return None
+    tt = _minutes(it.get("totalTime")) or \
+        ((_minutes(it.get("prepTime")) or 0) + (_minutes(it.get("cookTime")) or 0)) or None
+    cal = None
+    if isinstance(it.get("nutrition"), dict):
+        cal = _num(it["nutrition"].get("calories"))
+    rating = None
+    if isinstance(it.get("aggregateRating"), dict):
+        rating = _num(it["aggregateRating"].get("ratingValue"))
+    ings = [_strip(str(x)) for x in (it.get("recipeIngredient") or [])][:3]
+    return dict(name=_strip(str(name)), url=it.get("url") or fallback_url,
+                img=_img_url(it.get("image")), minutes=tt, cal=cal,
+                rating=rating, ings=ings)
+
+def _recipe_score(r):
+    s = 0.0
+    if r["minutes"]:
+        s += max(0, 45 - r["minutes"])          # schneller = besser (bis 45 Min)
+    if r["cal"]:
+        s += max(0, (700 - r["cal"]) / 20)       # kalorienärmer = besser
+    if r["rating"]:
+        s += r["rating"] * 4                      # gute Bewertung zählt
+    return s
+
+def get_recipe():
+    cands = []
+    for feed in RECIPE_FEEDS:
+        try:
+            for e in feedparser.parse(feed).entries[:3]:
+                url = e.get("link")
+                if not url:
+                    continue
+                text = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20).text
+                for it in _jsonld_recipes(text):
+                    r = _recipe_from(it, url)
+                    if r and r["img"] and r["minutes"]:
+                        cands.append(r)
+                    break
+        except Exception:
+            continue
+    if not cands:
+        return None
+    cands.sort(key=_recipe_score, reverse=True)
+    return cands[0]
+
+def render_recipe(r):
+    if not r:
+        return ""
+    meta = []
+    if r["minutes"]:
+        meta.append("%d Min" % r["minutes"])
+    if r["rating"]:
+        meta.append('<span class="star">\u2605</span> %.1f' % r["rating"])
+    if r["cal"]:
+        meta.append("%d kcal" % r["cal"])
+    why = []
+    if r["minutes"] and r["minutes"] <= 30:
+        why.append("schnell")
+    if r["cal"] and r["cal"] <= 500:
+        why.append("kalorienarm")
+    if r["rating"] and r["rating"] >= 4.5:
+        why.append("top bewertet")
+    why_html = ('<div class="r-why">Warum: %s</div>' % esc(" · ".join(why))) if why else ""
+    ings = (' · '.join(esc(i) for i in r["ings"])) if r["ings"] else ""
+    img = ('background-image:url(\'%s\')' % esc(r["img"])) if r["img"] else ""
+    return ('<div class="divider"></div><div class="sec">'
+            '<div class="eyebrow">Gesund &amp; schnell <span class="count">automatisch ausgewählt</span></div>'
+            '<a class="recipe" href="%s"><div class="recipe-img" style="%s"></div>'
+            '<div class="recipe-body"><div class="r-title">%s</div>'
+            '<div class="r-meta">%s</div><div class="r-ing">%s</div>%s</div></a></div>'
+            % (esc(r["url"]), img, esc(r["name"]), " · ".join(meta), ings, why_html))
+
+# ---------------------------------------------------------------- Fußball / Sport
+# Alle Spiele aus den ICS-Spielplaenen von calovo (cal.to) - ohne iPhone-Kalender.
+# Je nach gewaehltem calovo-Kalender inkl. CL/Pokal/Testspiele.
+# (Anzeigename, ICS-URL, OpenLigaDB-Liga fuer Tabelle | "", Tabellen-Suchbegriff | "")
+SPORTS_ICS = [
+    ("FC Bayern",       "https://i.cal.to/ical/2/fcbayern/bundesliga-spielplan/37736a35.76a29904-93a09808.ics", "bl1", "Bayern"),
+    ("Preussen Muenster","https://i.cal.to/ical/509/scpreussen-muenster/spielplan/37736a35.76a29904-d818caed.ics", "bl2", "Preu"),
+    ("Uni Baskets",     "https://i.cal.to/ical/3645/wwu-baskets/spielplan/37736a35.76a29904-dc771112.ics", "", ""),
+]
+SPORTS_SEASON = 2026
+SPORTS_DAYS = 7
+
+TV_LABEL = {"ard":"ARD","zdf":"ZDF","das erste":"Das Erste","sat.1":"Sat.1","sat1":"Sat.1",
+            "ran":"ran","rtl":"RTL","prosieben":"ProSieben","sport1":"Sport1","nitro":"Nitro",
+            "sportschau":"Sportschau","sky":"Sky","dazn":"DAZN","amazon":"Amazon Prime",
+            "prime":"Amazon Prime","wow":"WOW","magentasport":"MagentaSport","magenta tv":"MagentaTV"}
+TV_PAY  = ["sky","dazn","amazon","prime","wow","magentasport","magenta tv"]
+TV_FREE = ["ard","zdf","das erste","sat.1","sat1","ran","rtl","prosieben","sport1","nitro","sportschau"]
+
+_TBL = {}
+
+def _table_pos(league, match):
+    if not league or not match:
+        return None
+    if league not in _TBL:
+        try:
+            _TBL[league] = requests.get(
+                "https://api.openligadb.de/getbltable/%s/%s" % (league, SPORTS_SEASON),
+                timeout=20).json()
+        except Exception:
+            _TBL[league] = []
+    for i, t in enumerate(_TBL[league], 1):
+        if match.lower() in (t.get("teamName", "") or "").lower():
+            return i
+    return None
+
+def _ics_field(block, name):
+    for line in block.splitlines():
+        if line.startswith(name + ":") or line.startswith(name + ";"):
+            return line.split(":", 1)[-1].strip()
+    return ""
+
+def _ics_dt(value):
+    if not value:
+        return None, False
+    is_utc = value.endswith("Z")
+    v = value.replace("Z", "")
+    try:
+        if "T" in v:
+            d = dt.datetime.strptime(v[:15], "%Y%m%dT%H%M%S")
+            d = d.replace(tzinfo=timezone.utc).astimezone(TZ) if is_utc else d.replace(tzinfo=TZ)
+            return d, True
+        return dt.datetime.strptime(v[:8], "%Y%m%d").replace(tzinfo=TZ), False
+    except Exception:
+        return None, False
+
+def _broadcaster(text):
+    t = text.lower()
+    for kw in TV_PAY:
+        if re.search(r"(?<![a-z])" + re.escape(kw) + r"(?![a-z])", t):
+            return TV_LABEL.get(kw, kw), "Pay"
+    for kw in TV_FREE:
+        if re.search(r"(?<![a-z])" + re.escape(kw) + r"(?![a-z])", t):
+            return TV_LABEL.get(kw, kw), "Free"
+    return "", ""
+
+def get_sports():
+    games = []
+    now = dt.datetime.now(TZ)
+    horizon = now + dt.timedelta(days=SPORTS_DAYS)
+    for name, ics, league, match in SPORTS_ICS:
+        url = ics.replace("webcal://", "https://")
+        if not url.startswith("http"):
+            continue
+        try:
+            txt = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20).text
+        except Exception:
+            continue
+        pos = _table_pos(league, match)
+        for block in txt.split("BEGIN:VEVENT")[1:]:
+            block = block.split("END:VEVENT")[0]
+            when, has_time = _ics_dt(_ics_field(block, "DTSTART"))
+            if not when or not (now <= when <= horizon):
+                continue
+            summary = _ics_field(block, "SUMMARY")
+            blob = summary + " " + _ics_field(block, "DESCRIPTION") + " " + _ics_field(block, "LOCATION")
+            tv, kind = _broadcaster(blob)
+            games.append(dict(name=name, when=when, has_time=has_time,
+                              title=summary, pos=pos, tv=tv, tv_kind=kind))
+    games.sort(key=lambda g: g["when"])
+    return games
+
+def render_sports(games):
+    if not games:
+        return ""
+    rows = ""
+    for g in games:
+        when = ("%s %02d:%02d" % (WD[g["when"].weekday()], g["when"].hour, g["when"].minute)
+                if g["has_time"] else WD[g["when"].weekday()])
+        pos = (' <span class="g-pos">(Tab. %d.)</span>' % g["pos"]) if g.get("pos") else ""
+        tv = ('<span class="g-tv">%s \xb7 %s</span>' % (esc(g["tv"]), esc(g["tv_kind"]))) if g["tv"] else ""
+        rows += ('<div class="game"><span class="g-when">%s</span>'
+                 '<span class="g-opp">%s</span>%s %s</div>'
+                 % (when, esc(g["title"]), pos, tv))
+    return ('<div class="divider"></div><div class="sec">'
+            '<div class="eyebrow">Sport \xb7 diese Woche '
+            '<span class="count">alle Wettbewerbe \xb7 Tabelle in ( )</span></div>'
+            '<div style="margin-top:8px;">%s</div></div>' % rows)
+
+# ---------------------------------------------------------------- Events Münster
+# Beste-Mühe: liest die Rausgegangen-Seite und zieht strukturierte Event-Daten
+# (JSON-LD). Kein offizieller Feed vorhanden -> bei Bedarf leer.
+EVENTS_URL = "https://rausgegangen.de/muenster/"
+EVENTS_DAYS = 7
+EVENTS_MAX = 5
+HANSA_KEYWORD = "hansaviertel"
+
+def _jsonld_all(text):
+    out = []
+    for m in re.finditer(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', text, re.S | re.I):
+        try:
+            data = json.loads(m.group(1).strip())
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else \
+            (data.get("@graph", [data]) if isinstance(data, dict) else [])
+        for it in items:
+            if isinstance(it, dict):
+                out.append(it)
+    return out
+
+def _loc_name(loc):
+    if isinstance(loc, dict):
+        return loc.get("name") or ""
+    if isinstance(loc, list) and loc:
+        return _loc_name(loc[0])
+    if isinstance(loc, str):
+        return loc
+    return ""
+
+def get_events():
+    try:
+        text = requests.get(EVENTS_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20).text
+    except Exception:
+        return []
+    now = dt.datetime.now(TZ)
+    horizon = now + dt.timedelta(days=EVENTS_DAYS)
+    evs, seen = [], set()
+    for it in _jsonld_all(text):
+        t = it.get("@type", "")
+        if not (t == "Event" or (isinstance(t, list) and "Event" in t)):
+            continue
+        sd = it.get("startDate")
+        if not sd:
+            continue
+        try:
+            when = dt.datetime.fromisoformat(sd.replace("Z", "+00:00"))
+            when = when.astimezone(TZ) if when.tzinfo else when.replace(tzinfo=TZ)
+        except Exception:
+            continue
+        if not (now <= when <= horizon):
+            continue
+        name = _strip(str(it.get("name", "")))
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        venue = _strip(_loc_name(it.get("location")))
+        has_time = "T" in sd
+        hansa = HANSA_KEYWORD in (name + " " + venue).lower()
+        evs.append(dict(when=when, has_time=has_time, title=name, venue=venue,
+                        url=it.get("url") or EVENTS_URL, hansa=hansa))
+    evs.sort(key=lambda e: e["when"])
+    # Hansaviertel-Treffer nach oben
+    evs.sort(key=lambda e: not e["hansa"])
+    return evs[:EVENTS_MAX]
+
+def render_events(evs):
+    if not evs:
+        return ""
+    rows = ""
+    for e in evs:
+        when = ("%s %02d:%02d" % (WD[e["when"].weekday()], e["when"].hour, e["when"].minute)
+                if e["has_time"] else WD[e["when"].weekday()])
+        hansa = ' <span class="ev-hansa">Hansaviertel</span>' if e["hansa"] else ""
+        venue = ('<span class="ev-venue">%s</span>' % esc(e["venue"])) if e["venue"] else ""
+        rows += ('<div class="ev"><span class="ev-when">%s</span>'
+                 '<a class="ev-title" href="%s">%s</a>%s %s</div>'
+                 % (when, esc(e["url"]), esc(e["title"]), hansa, venue))
+    return ('<div class="divider"></div><div class="sec">'
+            '<div class="eyebrow">Münster · diese Woche '
+            '<span class="count">Events · Hansaviertel markiert</span></div>'
+            '<div style="margin-top:8px;">%s</div></div>' % rows)
+
 def build():
     days, mk = get_weather(), get_markets()
     pods = get_podcasts()
+    recipe = get_recipe()
+    sports = get_sports()
+    events = get_events()
     now_local = dt.datetime.now(TZ)
+    today = now_local.date()
     stand = now_local.strftime("%H:%M")
     built = now_local.strftime("%d.%m. %H:%M")
-    quote = QUOTES[dt.date.today().weekday() % len(QUOTES)]
-    datum = dt.date.today().strftime("%A, %d. %B %Y")
+    quote = QUOTES[today.weekday() % len(QUOTES)]
+    _wt = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    _mo = ["Januar", "Februar", "M\xe4rz", "April", "Mai", "Juni", "Juli", "August",
+           "September", "Oktober", "November", "Dezember"]
+    datum = "%s, %d. %s %d" % (_wt[today.weekday()], today.day, _mo[today.month - 1], today.year)
     page = """<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Morning Briefing">
@@ -355,6 +684,9 @@ a{color:inherit}
 .wordmark{font-size:12px;letter-spacing:.3em;text-transform:uppercase;font-weight:600}
 .submark{font-size:10.5px;color:%(meta)s;margin-top:3px}
 .date{font-size:12px;color:%(meta)s;font-style:italic;text-align:right}
+.mast-right{display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+.refresh{border:1px solid %(hair)s;background:transparent;color:%(accent)s;width:30px;height:30px;border-radius:50%%;font-size:15px;line-height:1;padding:0;cursor:pointer;-webkit-appearance:none}
+.refresh:active{background:%(hair)s}
 .greet{padding:13px 26px;border-bottom:1px solid %(hair)s}
 .hi{font-size:14.5px;font-weight:600}
 .quote{margin-top:8px;font-size:12px;font-style:italic;color:%(ink_soft)s}
@@ -382,10 +714,29 @@ a{color:inherit}
 .pod-name{font-weight:600;color:%(accent)s;text-decoration:none;display:block}
 .pod-topic{color:%(ink)s;margin-top:2px;line-height:1.35}
 .pod-desc{color:%(ink_soft)s;margin-top:2px;line-height:1.35;font-size:11.5px}
+.recipe{display:flex;gap:12px;margin-top:9px;text-decoration:none;align-items:center}
+.recipe-img{width:84px;height:84px;border-radius:4px;flex-shrink:0;background-size:cover;background-position:center;background-color:#E7E4DC}
+.r-title{font-size:13.5px;font-weight:600;color:%(ink)s}
+.r-meta{font-size:10.5px;color:%(meta)s;margin-top:3px}.r-meta .star{color:%(warm)s}
+.r-ing{font-size:11.5px;color:%(ink_soft)s;margin-top:5px}
+.r-why{font-size:9px;color:%(accent)s;margin-top:4px;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.game{display:flex;align-items:baseline;gap:7px;padding:7px 0;border-top:1px solid %(hair)s;font-size:12.5px;flex-wrap:wrap}
+.game:first-of-type{border-top:none;padding-top:8px}
+.g-when{color:%(accent)s;font-weight:700;font-size:10px;letter-spacing:.03em;min-width:60px}
+.g-team{font-weight:600;color:%(ink)s;text-decoration:none}
+.g-pos{color:%(meta)s;font-size:10.5px}.g-opp{color:%(ink_soft)s}
+.g-comp{color:%(meta)s;font-size:9px;letter-spacing:.03em;margin-left:auto;text-transform:uppercase}
+.g-tv{color:%(accent)s;font-size:9px;letter-spacing:.03em;margin-left:auto;text-transform:uppercase;font-weight:600}
+.ev{display:flex;align-items:baseline;gap:7px;padding:7px 0;border-top:1px solid %(hair)s;font-size:12.5px;flex-wrap:wrap}
+.ev:first-of-type{border-top:none;padding-top:8px}
+.ev-when{color:%(accent)s;font-weight:700;font-size:10px;letter-spacing:.03em;min-width:54px}
+.ev-title{font-weight:600;color:%(ink)s;text-decoration:none}
+.ev-venue{color:%(meta)s;font-size:10px;margin-left:auto}
+.ev-hansa{font-size:8.5px;color:#fff;background:%(warm)s;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
 .foot{padding:15px 26px 20px;border-top:1px solid %(hair)s;font-size:10px;color:%(meta)s;line-height:1.5}
 </style></head><body><div class="wrap"><div class="card">
 <div class="mast"><div><div class="wordmark">Morning Briefing</div><div class="submark">f\xfcr Daniel Overesch</div></div>
-<div class="date">%(datum)s</div></div>
+<div class="mast-right"><button class="refresh" onclick="location.reload()" aria-label="Aktualisieren" title="Aktualisieren">\u21bb</button><div class="date">%(datum)s</div></div></div>
 <div class="greet"><div class="hi">Guten Morgen, %(name)s</div>
 <div class="quote">%(qt)s <span class="by">\u2014 %(qa)s</span></div></div>
 <div class="sec"><div class="eyebrow">Wetter <span class="count">10 Tage \xb7 M\xfcnster</span></div>
@@ -396,13 +747,17 @@ a{color:inherit}
 <div class="divider"></div>
 %(clusters)s
 %(podcasts)s
+%(events)s
+%(recipe)s
+%(sports)s
 <div class="foot">Automatisch erzeugt %(built)s \xb7 \xdcberschriften verlinken auf die Originalquelle.
 Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</div>
 </div></div></body></html>""" % dict(
         C, datum=datum, name=NAME, qt=esc(quote[0]), qa=esc(quote[1]),
         stand=stand, built=built,
         wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters(),
-        podcasts=render_podcasts(pods))
+        podcasts=render_podcasts(pods), recipe=render_recipe(recipe),
+        sports=render_sports(sports), events=render_events(events))
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(page)
