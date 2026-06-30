@@ -614,6 +614,15 @@ EVENTS_DAYS = 7
 EVENTS_MAX = 5
 HANSA_KEYWORD = "hansaviertel"
 
+# Rausgegangen ist eine JS-App -> Events serverseitig nicht abrufbar.
+# Daher verlässlicher Verweis-Block mit kuratierten Links statt brüchiger Liste.
+EVENT_LINKS = [
+    ("Heute",          "https://rausgegangen.de/muenster/tipps-fuer-heute/"),
+    ("Alle Events",    "https://rausgegangen.de/muenster/"),
+    ("Hansaviertel",   "https://www.google.com/search?q=Veranstaltungen+Hansaviertel+M%C3%BCnster"),
+    ("Stadt-Kalender", "https://www.stadt-muenster.de/veranstaltungskalender"),
+]
+
 def _jsonld_all(text):
     out = []
     for m in re.finditer(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', text, re.S | re.I):
@@ -673,29 +682,19 @@ def get_events():
     evs.sort(key=lambda e: not e["hansa"])
     return evs[:EVENTS_MAX]
 
-def render_events(evs):
-    if not evs:
-        return ""
-    rows = ""
-    for e in evs:
-        when = ("%s %02d:%02d" % (WD[e["when"].weekday()], e["when"].hour, e["when"].minute)
-                if e["has_time"] else WD[e["when"].weekday()])
-        hansa = ' <span class="ev-hansa">Hansaviertel</span>' if e["hansa"] else ""
-        venue = ('<span class="ev-venue">%s</span>' % esc(e["venue"])) if e["venue"] else ""
-        rows += ('<div class="ev"><span class="ev-when">%s</span>'
-                 '<a class="ev-title" href="%s">%s</a>%s %s</div>'
-                 % (when, esc(e["url"]), esc(e["title"]), hansa, venue))
+def render_events():
+    links = " \xb7 ".join('<a class="ev-link" href="%s">%s</a>' % (esc(u), esc(t))
+                          for t, u in EVENT_LINKS)
     return ('<div class="divider"></div><div class="sec">'
-            '<div class="eyebrow">Münster · diese Woche '
-            '<span class="count">Events · Hansaviertel markiert</span></div>'
-            '<div style="margin-top:8px;">%s</div></div>' % rows)
+            '<div class="eyebrow">Veranstaltungen M\xfcnster '
+            '<span class="count">kuratierte Tipps \xb7 Hansaviertel</span></div>'
+            '<div class="ev-links">%s</div></div>' % links)
 
 def build():
     days, mk = get_weather(), get_markets()
     pods = get_podcasts()
     recipe = get_recipe()
     sports = sorted(get_sports() + get_mesum(), key=lambda g: g["when"])
-    events = get_events()
     now_local = dt.datetime.now(TZ)
     today = now_local.date()
     stand = now_local.strftime("%H:%M")
@@ -772,6 +771,8 @@ a{color:inherit}
 .ev-title{font-weight:600;color:%(ink)s;text-decoration:none}
 .ev-venue{color:%(meta)s;font-size:10px;margin-left:auto}
 .ev-hansa{font-size:8.5px;color:#fff;background:%(warm)s;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.ev-links{margin-top:9px;font-size:12.5px;line-height:1.9}
+.ev-link{color:%(accent)s;font-weight:600;text-decoration:none}
 .foot{padding:15px 26px 20px;border-top:1px solid %(hair)s;font-size:10px;color:%(meta)s;line-height:1.5}
 </style></head><body><div class="wrap"><div class="card">
 <div class="mast"><div><div class="wordmark">Morning Briefing</div><div class="submark">f\xfcr Daniel Overesch</div></div>
@@ -796,7 +797,7 @@ Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</di
         stand=stand, built=built,
         wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters(),
         podcasts=render_podcasts(pods), recipe=render_recipe(recipe),
-        sports=render_sports(sports), events=render_events(events))
+        sports=render_sports(sports), events=render_events())
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(page)
