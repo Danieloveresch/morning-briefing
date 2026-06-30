@@ -30,6 +30,7 @@ DUP_THRESHOLD       = 0.5        # Titel-Ähnlichkeit fürs deterministische Net
 
 # Nischen-Cluster aktualisieren selten -> größeres Fenster, damit aufgefüllt wird
 AGE_BY_CLUSTER = {
+    "Münster Lokal":                   72,    # lokal -> bis 3 Tage zurück
     "Mesum & Rheine":                  120,   # lokal -> bis 5 Tage zurück
     "Genossenschaftsbanken & Atruvia": 120,   # Fachnische -> bis 5 Tage zurück
 }
@@ -52,8 +53,11 @@ CLUSTERS = [
     ("Wirtschaft & Finanzen", ["https://www.handelsblatt.com/contentexport/feed/finanzen"], "Handelsblatt"),
     ("Künstliche Intelligenz & Tech",
      ["https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en"], "KI-News"),
+    ("Münster Lokal",
+     ["https://news.google.com/rss/search?q=site:wn.de+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de",
+      "https://news.google.com/rss/search?q=Polizei+M%C3%BCnster+OR+Stadt+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de"], "Münster / WN"),
     ("Mesum & Rheine",
-     ["https://news.google.com/rss/search?q=%22Mesum%22+OR+%22Rheine%22+Stadt&hl=de&gl=DE&ceid=DE:de"], "MV / Lokal"),
+     ["https://news.google.com/rss/search?q=%22Mesum%22+OR+%22Rheine%22+Stadt+when:7d&hl=de&gl=DE&ceid=DE:de"], "MV / Lokal"),
     ("Genossenschaftsbanken & Atruvia",
      ["https://news.google.com/rss/search?q=Genossenschaftsbank+OR+Atruvia+OR+BVR&hl=de&gl=DE&ceid=DE:de"], "Geno-News"),
     ("FC Bayern", ["https://fcbinside.de/feed"], "FCBinside"),
@@ -567,6 +571,41 @@ def render_sports(games):
             '<span class="count">alle Wettbewerbe \xb7 Tabelle in ( )</span></div>'
             '<div style="margin-top:8px;">%s</div></div>' % rows)
 
+# ---------------------------------------------------------------- SV Mesum
+# fussball.de ist eine JS-App (per Abruf nicht lesbar) -> beste-Mühe über kicker.
+# Wird unten zu den Sport-Spielen gemischt. Bleibt bei Bedarf einfach leer.
+MESUM_NAME = "SV Mesum"
+MESUM_URL = "https://www.kicker.de/sv-mesum/spielplan"
+
+def get_mesum():
+    try:
+        text = requests.get(MESUM_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20).text
+    except Exception:
+        return []
+    now = dt.datetime.now(TZ)
+    horizon = now + dt.timedelta(days=SPORTS_DAYS)
+    out = []
+    for it in _jsonld_all(text):
+        t = it.get("@type", "")
+        is_event = (t in ("Event", "SportsEvent") or
+                    (isinstance(t, list) and ("Event" in t or "SportsEvent" in t)))
+        if not is_event:
+            continue
+        sd = it.get("startDate")
+        if not sd:
+            continue
+        try:
+            when = dt.datetime.fromisoformat(str(sd).replace("Z", "+00:00"))
+            when = when.astimezone(TZ) if when.tzinfo else when.replace(tzinfo=TZ)
+        except Exception:
+            continue
+        if not (now <= when <= horizon):
+            continue
+        name = _strip(str(it.get("name", ""))) or MESUM_NAME
+        out.append(dict(name=MESUM_NAME, when=when, has_time="T" in str(sd),
+                        title=name, pos=None, tv="", tv_kind=""))
+    return out
+
 # ---------------------------------------------------------------- Events Münster
 # Beste-Mühe: liest die Rausgegangen-Seite und zieht strukturierte Event-Daten
 # (JSON-LD). Kein offizieller Feed vorhanden -> bei Bedarf leer.
@@ -655,7 +694,7 @@ def build():
     days, mk = get_weather(), get_markets()
     pods = get_podcasts()
     recipe = get_recipe()
-    sports = get_sports()
+    sports = sorted(get_sports() + get_mesum(), key=lambda g: g["when"])
     events = get_events()
     now_local = dt.datetime.now(TZ)
     today = now_local.date()
