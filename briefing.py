@@ -35,6 +35,10 @@ AGE_BY_CLUSTER = {
     "Genossenschaftsbanken & Atruvia": 120,   # Fachnische -> bis 5 Tage zurück
 }
 
+# Treffer mit diesem Begriff werden im jeweiligen Cluster nach vorne gezogen
+# und notfalls erzwungen (auch wenn Rheine-Meldungen frischer sind).
+PRIORITY_TERM = {"Mesum & Rheine": "Mesum"}
+
 # Nicht-News / Müll aussortieren (Domain-Teilstrings + Titel-Muster)
 BLOCK_DOMAINS = ("wetter.com", "wetter.de")
 BLOCK_TITLE   = (re.compile(r"\b\d-tage", re.I), re.compile(r"übersicht", re.I),
@@ -57,7 +61,9 @@ CLUSTERS = [
      ["https://news.google.com/rss/search?q=site:wn.de+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de",
       "https://news.google.com/rss/search?q=Polizei+M%C3%BCnster+OR+Stadt+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de"], "Münster / WN"),
     ("Mesum & Rheine",
-     ["https://news.google.com/rss/search?q=%22Mesum%22+OR+%22Rheine%22+Stadt+when:7d&hl=de&gl=DE&ceid=DE:de"], "MV / Lokal"),
+     ["https://news.google.com/rss/search?q=%22Mesum%22&hl=de&gl=DE&ceid=DE:de",
+      "https://news.google.com/rss/search?q=site:mv-online.de+Mesum&hl=de&gl=DE&ceid=DE:de",
+      "https://news.google.com/rss/search?q=%22Rheine%22+Lokales&hl=de&gl=DE&ceid=DE:de"], "MV / Lokal"),
     ("Genossenschaftsbanken & Atruvia",
      ["https://news.google.com/rss/search?q=Genossenschaftsbank+OR+Atruvia+OR+BVR&hl=de&gl=DE&ceid=DE:de"], "Geno-News"),
     ("FC Bayern", ["https://fcbinside.de/feed"], "FCBinside"),
@@ -168,6 +174,20 @@ def _entry_dt(e):
         if v:
             return datetime.fromtimestamp(calendar.timegm(v), tz=timezone.utc)
     return None
+
+def _age_label(e):
+    d = _entry_dt(e)
+    if not d:
+        return ""
+    secs = (datetime.now(timezone.utc) - d).total_seconds()
+    if secs < 0:
+        return ""
+    if secs < 5400:                       # < 1,5 Std
+        return "gerade"
+    if secs < 86400:
+        return "vor %d Std" % int(secs // 3600)
+    days = int(secs // 86400)
+    return "vor 1 Tag" if days == 1 else "vor %d Tagen" % days
 
 def _blocked(e):
     link = (e.get("link") or "").lower()
@@ -287,17 +307,29 @@ def render_clusters():
         cands = [c for c in cands
                  if not any(_dup(c.get("title", ""), s) for s in shown)]
         items = dedupe_pick(cands, MAX_PER_CLUSTER)
+        prio = PRIORITY_TERM.get(title)
+        if prio and cands:
+            pk = prio.lower()
+            hit = lambda e: pk in (e.get("title", "") + " " + e.get("summary", "")).lower()
+            if not any(hit(e) for e in items):        # kein Treffer dabei -> erzwingen
+                m = next((e for e in cands if hit(e)), None)
+                if m:
+                    items = [m] + [e for e in items if e is not m][:MAX_PER_CLUSTER - 1]
+            items.sort(key=lambda e: not hit(e))       # Treffer zuerst (stabil)
         if not items:
             continue
         for it in items:
             shown.append(it.get("title", ""))
         rows = ""
         for e in items:
+            age = _age_label(e)
+            age_html = (' <span class="age">\xb7 %s</span>' % esc(age)) if age else ''
             rows += ('<div class="item"><a class="title" href="%s">%s</a>'
                      '<div class="summary">%s</div>'
-                     '<div class="meta"><span class="src">%s</span></div></div>'
+                     '<div class="meta"><span class="src">%s</span>%s</div></div>'
                      % (esc(e.get("link", "#")), esc(e.get("title", "")),
-                        esc(summarize(e.get("title", ""), e.get("summary", ""))), esc(src)))
+                        esc(summarize(e.get("title", ""), e.get("summary", ""))),
+                        esc(src), age_html))
         div = '<div class="divider"></div>' if i else ''
         out += ('%s<div class="sec"><div class="eyebrow">%s <span class="count">%d</span></div>'
                 '<div style="margin-top:8px;">%s</div></div>' % (div, esc(title), len(items), rows))
@@ -747,7 +779,7 @@ a{color:inherit}
 .item{padding:9px 0;border-top:1px solid %(hair)s}.item:first-of-type{border-top:none;padding-top:8px}
 .item a.title{font-size:13.5px;font-weight:600;color:%(ink)s;text-decoration:none;line-height:1.28}
 .summary{margin:3px 0 4px;font-size:12px;color:%(ink_soft)s;line-height:1.4}
-.meta{font-size:10px;color:%(meta)s}.meta .src{color:%(accent)s;font-weight:600}
+.meta{font-size:10px;color:%(meta)s}.meta .src{color:%(accent)s;font-weight:600}.meta .age{color:%(meta)s}
 .pod{padding:8px 0;border-top:1px solid %(hair)s;font-size:12px}.pod:first-of-type{border-top:none}
 .pod-name{font-weight:600;color:%(accent)s;text-decoration:none;display:block}
 .pod-topic{color:%(ink)s;margin-top:2px;line-height:1.35}
