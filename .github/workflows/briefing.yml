@@ -52,6 +52,7 @@ jobs:
             --password "$STATICRYPT_PASSWORD" \
             --salt "$STATICRYPT_SALT" \
             --remember 30 \
+            --short \
             --config false
           cp encrypted/index.html index.html
 
