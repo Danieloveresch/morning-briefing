@@ -12,7 +12,7 @@ sondern kommen später im iPhone-Kurzbefehl (Etappe 3) – die bleiben am Gerät
 Läuft automatisch per GitHub Actions. Nichts manuell starten.
 """
 
-import os, re, html, json, calendar, datetime as dt
+import os, re, html, json, calendar, datetime as dt, urllib.parse
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import requests, feedparser
@@ -75,6 +75,21 @@ QUOTES = [
     ("Wer ein Warum zum Leben hat, erträgt fast jedes Wie.", "Friedrich Nietzsche"),
     ("Qualität ist kein Zufall; sie ist immer das Ergebnis angestrengten Denkens.", "John Ruskin"),
     ("Das Geheimnis des Vorwärtskommens besteht darin, den ersten Schritt zu tun.", "Mark Twain"),
+    ("Pläne sind nichts, Planung ist alles.", "Dwight D. Eisenhower"),
+    ("Die beste Möglichkeit, die Zukunft vorherzusagen, ist, sie zu erfinden.", "Alan Kay"),
+    ("Der Weg ist das Ziel.", "Konfuzius"),
+    ("Wer aufhört, besser zu werden, hat aufgehört, gut zu sein.", "Philip Rosenthal"),
+    ("Nur wer sein Ziel kennt, findet den Weg.", "Laozi"),
+    ("Die Grenzen meiner Sprache bedeuten die Grenzen meiner Welt.", "Ludwig Wittgenstein"),
+    ("Wer kämpft, kann verlieren. Wer nicht kämpft, hat schon verloren.", "Bertolt Brecht"),
+    ("Man muss das Unmögliche versuchen, um das Mögliche zu erreichen.", "Hermann Hesse"),
+    ("Erfahrung ist der Name, den jeder seinen Fehlern gibt.", "Oscar Wilde"),
+    ("Ich weiß, dass ich nichts weiß.", "Sokrates"),
+    ("Wer immer tut, was er schon kann, bleibt immer das, was er schon ist.", "Henry Ford"),
+    ("Es gibt nichts Praktischeres als eine gute Theorie.", "Kurt Lewin"),
+    ("Das Ganze ist mehr als die Summe seiner Teile.", "Aristoteles"),
+    ("Zwei Dinge sind unendlich: das Universum und die menschliche Dummheit.", "Albert Einstein"),
+    ("Mut steht am Anfang des Handelns, Glück am Ende.", "Demokrit"),
 ]
 
 # Podcasts: (Anzeigename, Suchbegriff). Der Feed wird per Apple-Podcast-Suche
@@ -335,6 +350,148 @@ def render_clusters():
                 '<div style="margin-top:8px;">%s</div></div>' % (div, esc(title), len(items), rows))
     return out
 
+# ---------------------------------------------------------------- ADPKD (Gesundheit)
+# Zwei Stufen: Wissenschaft (Europe PMC -> nur Reviews/Leitlinien/Meta-Analysen) und
+# Fachpresse (Google News). Haiku-Tuersteher waehlt nur wirklich Relevantes/Neues aus;
+# kommt nichts durch, faellt die ganze Sektion weg. Kein Scraping, kein API-Key noetig
+# (ausser dem ohnehin vorhandenen ANTHROPIC_API_KEY fuer den Tuersteher).
+ADPKD_SCIENCE_MONTHS = 18               # Zeitfenster Wissenschaft
+ADPKD_NEWS_HOURS     = 24 * 14          # Zeitfenster Fachpresse (Nischenthema)
+ADPKD_MAX            = 3                # so viel wird maximal angezeigt
+ADPKD_NEWS_QUERY = 'ADPKD OR "Zystennieren" OR "polyzystische Nierenerkrankung"'
+ADPKD_SCI_QUERY  = ('ADPKD OR "autosomal dominant polycystic kidney" '
+                    'OR "polyzystische Nierenerkrankung"')
+
+def _age_from_dt(d):
+    if not d:
+        return ""
+    secs = (datetime.now(timezone.utc) - d).total_seconds()
+    if secs < 0:
+        return ""
+    if secs < 86400:
+        return "heute"
+    days = int(secs // 86400)
+    return "vor 1 Tag" if days == 1 else "vor %d Tagen" % days
+
+def _adpkd_science():
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=30 * ADPKD_SCIENCE_MONTHS)).strftime("%Y-%m-%d")
+    today = now.strftime("%Y-%m-%d")
+    q = ('(%s) AND (PUB_TYPE:"review" OR PUB_TYPE:"guideline" OR PUB_TYPE:"meta-analysis") '
+         'AND (FIRST_PDATE:[%s TO %s]) sort_date:y' % (ADPKD_SCI_QUERY, since, today))
+    try:
+        r = requests.get("https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+                         params={"query": q, "format": "json", "pageSize": 25,
+                                 "resultType": "lite"},
+                         headers={"User-Agent": "morning-briefing/1.0"}, timeout=20).json()
+    except Exception:
+        return []
+    out = []
+    for it in r.get("resultList", {}).get("result", []):
+        title = (it.get("title") or "").strip().rstrip(".")
+        if not title:
+            continue
+        d = None
+        try:
+            d = datetime.strptime(it.get("firstPublicationDate", ""), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+        doi, src, rid = it.get("doi"), it.get("source"), it.get("id")
+        if doi:
+            link = "https://doi.org/%s" % doi
+        elif src and rid:
+            link = "https://europepmc.org/article/%s/%s" % (src, rid)
+        else:
+            continue
+        out.append(dict(tier="Wissenschaft", title=title, link=link,
+                        src=it.get("journalTitle") or "Fachjournal", ts=d))
+        if len(out) >= 6:
+            break
+    return out
+
+def _adpkd_news():
+    url = ("https://news.google.com/rss/search?q=%s&hl=de&gl=DE&ceid=DE:de"
+           % urllib.parse.quote(ADPKD_NEWS_QUERY))
+    try:
+        feed = feedparser.parse(url)
+    except Exception:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=ADPKD_NEWS_HOURS)
+    out = []
+    for e in feed.entries[:20]:
+        title = (e.get("title") or "").strip()
+        link = e.get("link")
+        if not title or not link:
+            continue
+        ts = _entry_dt(e)
+        if ts and ts < cutoff:
+            continue
+        src = ""
+        if " - " in title:                 # Google-News-Suffix " - Quelle" abtrennen
+            title, src = title.rsplit(" - ", 1)
+        out.append(dict(tier="Fachpresse", title=title.strip(), link=link,
+                        src=src or "News", ts=ts))
+        if len(out) >= 6:
+            break
+    return out
+
+def _adpkd_gate(items):
+    """Haiku behaelt nur echt Relevantes/Neues; ohne Key: konservativ neueste."""
+    if not items:
+        return []
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        items.sort(key=lambda x: x["ts"] or datetime.now(timezone.utc), reverse=True)
+        return items[:ADPKD_MAX]
+    try:
+        import anthropic
+        listing = "\n".join("%d. (%s) %s \u2014 %s" % (i, it["tier"], it["title"], it["src"])
+                            for i, it in enumerate(items))
+        prompt = ("Du kuratierst einen ADPKD-Abschnitt (autosomal-dominante polyzystische "
+                  "Nierenerkrankung) fuer eine informierte Privatperson. Waehle NUR Beitraege, "
+                  "die inhaltlich echt relevant und neu sind (neue Therapien, Studien, "
+                  "Leitlinien, wichtige Einordnungen). Werbung, Randthemen und Dubletten "
+                  "weglassen. Lieber gar nichts als Fuellmaterial. Hoechstens %d. Antworte NUR "
+                  "mit JSON-Array der Indizes, wichtigste zuerst, z.B. [0,3]. Leeres Array [] "
+                  "ist ausdruecklich erlaubt.\n\n%s" % (ADPKD_MAX, listing))
+        msg = anthropic.Anthropic(api_key=key).messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=60,
+            messages=[{"role": "user", "content": prompt}])
+        raw = msg.content[0].text.strip().strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+        idx = json.loads(raw[raw.index("["):raw.rindex("]") + 1])
+        seen, out = set(), []
+        for i in idx:
+            if isinstance(i, int) and 0 <= i < len(items) and i not in seen:
+                seen.add(i); out.append(items[i])
+        return out[:ADPKD_MAX]
+    except Exception:
+        items.sort(key=lambda x: x["ts"] or datetime.now(timezone.utc), reverse=True)
+        return items[:ADPKD_MAX]
+
+def get_adpkd():
+    try:
+        return _adpkd_gate(_adpkd_science() + _adpkd_news())
+    except Exception:
+        return []                          # nie den Gesamt-Build gefaehrden
+
+def render_adpkd(items):
+    if not items:
+        return ""                          # leer -> Sektion faellt komplett weg
+    items.sort(key=lambda x: 0 if x["tier"] == "Wissenschaft" else 1)  # Wissenschaft zuerst
+    rows = ""
+    for it in items:
+        age = _age_from_dt(it["ts"])
+        tail = ((" \xb7 %s \xb7 %s" % (esc(it["src"]), esc(age))) if age
+                else (" \xb7 %s" % esc(it["src"])))
+        rows += ('<div class="item"><a class="title" href="%s">%s</a>'
+                 '<div class="meta"><span class="src">%s</span>%s</div></div>'
+                 % (esc(it["link"]), esc(it["title"]), esc(it["tier"]), tail))
+    return ('<div class="divider"></div><div class="sec">'
+            '<div class="eyebrow">ADPKD <span class="count">%d</span></div>'
+            '<div style="margin-top:8px;">%s</div></div>' % (len(items), rows))
+
 def get_podcasts():
     """Neueste Folge je Show. Feed wird via Apple-Podcast-Suche aufgeloest."""
     out = []
@@ -446,7 +603,7 @@ def _recipe_score(r):
         s += r["rating"] * 4                      # gute Bewertung zählt
     return s
 
-def get_recipe():
+def get_recipe(seed=0):
     cands = []
     for feed in RECIPE_FEEDS:
         try:
@@ -465,7 +622,8 @@ def get_recipe():
     if not cands:
         return None
     cands.sort(key=_recipe_score, reverse=True)
-    return cands[0]
+    top = cands[:6]                         # die besten Kandidaten
+    return top[seed % len(top)]             # taeglich durchrotieren (kein Wiederholen)
 
 def render_recipe(r):
     if not r:
@@ -723,15 +881,16 @@ def render_events():
             '<div class="ev-links">%s</div></div>' % links)
 
 def build():
-    days, mk = get_weather(), get_markets()
-    pods = get_podcasts()
-    recipe = get_recipe()
-    sports = sorted(get_sports() + get_mesum(), key=lambda g: g["when"])
     now_local = dt.datetime.now(TZ)
     today = now_local.date()
+    days, mk = get_weather(), get_markets()
+    pods = get_podcasts()
+    recipe = get_recipe(today.toordinal())          # taeglich rotieren
+    adpkd_items = get_adpkd()
+    sports = sorted(get_sports() + get_mesum(), key=lambda g: g["when"])
     stand = now_local.strftime("%H:%M")
     built = now_local.strftime("%d.%m. %H:%M")
-    quote = QUOTES[today.weekday() % len(QUOTES)]
+    quote = QUOTES[today.toordinal() % len(QUOTES)]  # taeglich, nicht nur je Wochentag
     _wt = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     _mo = ["Januar", "Februar", "M\xe4rz", "April", "Mai", "Juni", "Juli", "August",
            "September", "Oktober", "November", "Dezember"]
@@ -742,6 +901,9 @@ def build():
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Morning Briefing">
 <meta name="theme-color" content="#FCFCFA"><title>Morning Briefing</title><style>
@@ -818,6 +980,7 @@ a{color:inherit}
 <div class="mkt-row">%(mk)s</div></div>
 <div class="divider"></div>
 %(clusters)s
+%(adpkd)s
 %(podcasts)s
 %(events)s
 %(recipe)s
@@ -828,6 +991,7 @@ Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</di
         C, datum=datum, name=NAME, qt=esc(quote[0]), qa=esc(quote[1]),
         stand=stand, built=built,
         wx=render_weather(days), mk=render_markets(mk), clusters=render_clusters(),
+        adpkd=render_adpkd(adpkd_items),
         podcasts=render_podcasts(pods), recipe=render_recipe(recipe),
         sports=render_sports(sports), events=render_events())
 
@@ -836,7 +1000,9 @@ Pers\xf6nliche Bl\xf6cke (Whoop, Fotos, Agenda) folgen im iPhone-Kurzbefehl.</di
     with open("manifest.json", "w", encoding="utf-8") as f:
         f.write('{"name":"Morning Briefing f\\u00fcr Daniel Overesch","short_name":"Briefing",'
                 '"start_url":"./index.html","scope":"./","display":"standalone",'
-                '"background_color":"#FCFCFA","theme_color":"#FCFCFA","lang":"de"}')
+                '"background_color":"#FCFCFA","theme_color":"#FCFCFA","lang":"de",'
+                '"icons":[{"src":"icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},'
+                '{"src":"icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}')
     print("index.html + manifest.json geschrieben.")
 
 if __name__ == "__main__":
