@@ -363,9 +363,11 @@ def render_clusters():
 # Fachpresse (Google News). Haiku-Tuersteher waehlt nur wirklich Relevantes/Neues aus;
 # kommt nichts durch, faellt die ganze Sektion weg. Kein Scraping, kein API-Key noetig
 # (ausser dem ohnehin vorhandenen ANTHROPIC_API_KEY fuer den Tuersteher).
-ADPKD_SCIENCE_MONTHS = 18               # Zeitfenster Wissenschaft
-ADPKD_NEWS_HOURS     = 24 * 14          # Zeitfenster Fachpresse (Nischenthema)
-ADPKD_MAX            = 3                # so viel wird maximal angezeigt
+ADPKD_SCIENCE_MONTHS = 18               # Fetch-Fenster Wissenschaft (Kontext fuer Haiku)
+ADPKD_NEWS_HOURS     = 24 * 14          # Fetch-Fenster Fachpresse
+ADPKD_MAX            = 2                # Call-out zeigt hoechstens so viel
+ADPKD_SHOW_DAYS      = 14               # Frische-Deckel: nur wirklich Neues erscheint,
+                                        # Aelteres hallt nicht als Dauer-Reminder nach
 ADPKD_NEWS_QUERY = 'ADPKD OR "Zystennieren" OR "polyzystische Nierenerkrankung"'
 ADPKD_SCI_QUERY  = ('ADPKD OR "autosomal dominant polycystic kidney" '
                     'OR "polyzystische Nierenerkrankung"')
@@ -449,19 +451,21 @@ def _adpkd_gate(items):
         return []
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        items.sort(key=lambda x: x["ts"] or datetime.now(timezone.utc), reverse=True)
-        return items[:ADPKD_MAX]
+        return []                          # ohne Urteil keine Box (fail-closed)
     try:
         import anthropic
         listing = "\n".join("%d. (%s) %s \u2014 %s" % (i, it["tier"], it["title"], it["src"])
                             for i, it in enumerate(items))
-        prompt = ("Du kuratierst einen ADPKD-Abschnitt (autosomal-dominante polyzystische "
-                  "Nierenerkrankung) fuer eine informierte Privatperson. Waehle NUR Beitraege, "
-                  "die inhaltlich echt relevant und neu sind (neue Therapien, Studien, "
-                  "Leitlinien, wichtige Einordnungen). Werbung, Randthemen und Dubletten "
-                  "weglassen. Lieber gar nichts als Fuellmaterial. Hoechstens %d. Antworte NUR "
-                  "mit JSON-Array der Indizes, wichtigste zuerst, z.B. [0,3]. Leeres Array [] "
-                  "ist ausdruecklich erlaubt.\n\n%s" % (ADPKD_MAX, listing))
+        prompt = ("Du bist der strenge Tuersteher fuer eine ROTE Hinweis-Box zu ADPKD "
+                  "(autosomal-dominante polyzystische Nierenerkrankung), gedacht fuer einen "
+                  "Betroffenen. Die Box soll an den ALLERMEISTEN Tagen GAR NICHT erscheinen. "
+                  "Waehle NUR echte, wichtige NEUERUNGEN, die fuer einen Patienten konkret "
+                  "bedeutsam sind: neue/zugelassene Therapien, geaenderte Leitlinien, wichtige "
+                  "Studienergebnisse mit Praxisrelevanz, Sicherheitswarnungen. NICHT waehlen: "
+                  "Routine-Uebersichten, inkrementelle Grundlagenforschung, Wiederholungen, "
+                  "Allgemeinplaetze, Werbung. Im Zweifel: nichts. Hoechstens %d, wichtigste "
+                  "zuerst. Antworte NUR mit JSON-Array der Indizes, z.B. [0]. Leeres Array [] "
+                  "ist der Normalfall und ausdruecklich erwuenscht.\n\n%s" % (ADPKD_MAX, listing))
         msg = anthropic.Anthropic(api_key=key).messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=60,
             messages=[{"role": "user", "content": prompt}])
@@ -475,30 +479,32 @@ def _adpkd_gate(items):
                 seen.add(i); out.append(items[i])
         return out[:ADPKD_MAX]
     except Exception:
-        items.sort(key=lambda x: x["ts"] or datetime.now(timezone.utc), reverse=True)
-        return items[:ADPKD_MAX]
+        return []                          # Fehler -> keine Box (fail-closed)
 
 def get_adpkd():
     try:
-        return _adpkd_gate(_adpkd_science() + _adpkd_news())
+        cand = _adpkd_science() + _adpkd_news()
+        now = datetime.now(timezone.utc)
+        cut = timedelta(days=ADPKD_SHOW_DAYS)
+        # Frische-Deckel: nur datierte, wirklich neue Beitraege kommen in Frage
+        cand = [c for c in cand if c["ts"] and (now - c["ts"]) <= cut]
+        return _adpkd_gate(cand)
     except Exception:
         return []                          # nie den Gesamt-Build gefaehrden
 
 def render_adpkd(items):
     if not items:
-        return ""                          # leer -> Sektion faellt komplett weg
+        return ""                          # Normalfall: keine Box
     items.sort(key=lambda x: 0 if x["tier"] == "Wissenschaft" else 1)  # Wissenschaft zuerst
     rows = ""
     for it in items:
         age = _age_from_dt(it["ts"])
-        tail = ((" \xb7 %s \xb7 %s" % (esc(it["src"]), esc(age))) if age
-                else (" \xb7 %s" % esc(it["src"])))
-        rows += ('<div class="item"><a class="title" href="%s">%s</a>'
-                 '<div class="meta"><span class="src">%s</span>%s</div></div>'
-                 % (esc(it["link"]), esc(it["title"]), esc(it["tier"]), tail))
-    return ('<div class="divider"></div><div class="sec">'
-            '<div class="eyebrow">ADPKD <span class="count">%d</span></div>'
-            '<div style="margin-top:8px;">%s</div></div>' % (len(items), rows))
+        meta = " \xb7 ".join(x for x in [esc(it["tier"]), esc(it["src"]), esc(age)] if x)
+        rows += ('<div class="co-item"><a href="%s">%s</a>'
+                 '<div class="co-meta">%s</div></div>'
+                 % (esc(it["link"]), esc(it["title"]), meta))
+    return ('<div class="callout"><div class="co-label">ADPKD \xb7 Relevante Neuerung</div>'
+            '%s</div>' % rows)
 
 def get_podcasts():
     """Neueste Folge je Show. Feed wird via Apple-Podcast-Suche aufgeloest."""
@@ -927,6 +933,11 @@ a{color:inherit}
 .mast-right{display:flex;flex-direction:column;align-items:flex-end;gap:7px}
 .refresh{border:1px solid %(hair)s;background:transparent;color:%(accent)s;width:30px;height:30px;border-radius:50%%;font-size:15px;line-height:1;padding:0;cursor:pointer;-webkit-appearance:none}
 .refresh:active{background:%(hair)s}
+.callout{margin:14px 26px;padding:12px 15px;background:#FBEDEA;border:1px solid #E3B7AE;border-left:3px solid #A8453A;border-radius:5px}
+.co-label{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:#A8453A;font-weight:700}
+.co-item{margin-top:8px}
+.co-item a{color:#7A2E24;font-weight:600;text-decoration:none;font-size:13.5px;line-height:1.35;display:block}
+.co-meta{font-size:11px;color:#A8453A;opacity:.85;margin-top:2px}
 .greet{padding:13px 26px;border-bottom:1px solid %(hair)s}
 .hi{font-size:14.5px;font-weight:600}
 .quote{margin-top:8px;font-size:12px;font-style:italic;color:%(ink_soft)s}
@@ -983,12 +994,12 @@ a{color:inherit}
 <div class="quote">%(qt)s <span class="by">\u2014 %(qa)s</span></div></div>
 <div class="sec"><div class="eyebrow">Wetter <span class="count">10 Tage \xb7 M\xfcnster</span></div>
 <div class="wx-grid">%(wx)s</div></div>
+%(adpkd)s
 <div class="divider"></div>
 <div class="sec"><div class="eyebrow">M\xe4rkte <span class="count">Stand %(stand)s</span></div>
 <div class="mkt-row">%(mk)s</div></div>
 <div class="divider"></div>
 %(clusters)s
-%(adpkd)s
 %(podcasts)s
 %(events)s
 %(recipe)s
