@@ -35,9 +35,13 @@ AGE_BY_CLUSTER = {
     "Genossenschaftsbanken & Atruvia": 120,   # Fachnische -> bis 5 Tage zurück
 }
 
-# Treffer mit diesem Begriff werden im jeweiligen Cluster nach vorne gezogen
-# und notfalls erzwungen (auch wenn Rheine-Meldungen frischer sind).
+# Treffer mit diesem Begriff werden im jeweiligen Cluster nach vorne gezogen,
+# ABER nur wenn die Meldung frisch genug ist (siehe PRIORITY_MAX_AGE_H).
 PRIORITY_TERM = {"Mesum & Rheine": "Mesum"}
+# Prioritaets-Boost greift nur, wenn die Meldung juenger als so viele Stunden ist.
+# Hoeher = Mesum wird auch aelter noch nach oben gezwungen (kann veraltet wirken).
+# Niedriger = strenger, Sektion fuehrt dann mit dem Frischesten (evtl. Rheine).
+PRIORITY_MAX_AGE_H = 48
 
 # Nicht-News / Müll aussortieren (Domain-Teilstrings + Titel-Muster)
 BLOCK_DOMAINS = ("wetter.com", "wetter.de")
@@ -326,11 +330,15 @@ def render_clusters():
         if prio and cands:
             pk = prio.lower()
             hit = lambda e: pk in (e.get("title", "") + " " + e.get("summary", "")).lower()
-            if not any(hit(e) for e in items):        # kein Treffer dabei -> erzwingen
-                m = next((e for e in cands if hit(e)), None)
-                if m:
-                    items = [m] + [e for e in items if e is not m][:MAX_PER_CLUSTER - 1]
-            items.sort(key=lambda e: not hit(e))       # Treffer zuerst (stabil)
+            now = datetime.now(timezone.utc)
+            def _fresh(e):
+                ts = _entry_dt(e)
+                return bool(ts and (now - ts) <= timedelta(hours=PRIORITY_MAX_AGE_H))
+            # Mesum nur an die Spitze holen, wenn die Meldung frisch genug ist.
+            # Nur Altes vorhanden -> kein Pin, Sektion fuehrt mit dem Frischesten.
+            m = next((e for e in cands if hit(e) and _fresh(e)), None)
+            if m:
+                items = [m] + [e for e in items if e is not m][:MAX_PER_CLUSTER - 1]
         if not items:
             continue
         for it in items:
