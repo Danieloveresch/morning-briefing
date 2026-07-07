@@ -28,20 +28,24 @@ DEFAULT_AGE_HOURS   = 30         # bevorzugtes Frischefenster (schnelle Cluster)
 HARD_MAX_DAYS       = 10         # älter als das wird nie gezeigt
 DUP_THRESHOLD       = 0.5        # Titel-Ähnlichkeit fürs deterministische Netz
 
-# Nischen-Cluster aktualisieren selten -> größeres Fenster, damit aufgefüllt wird
+# Fenster je Cluster. Fuer die Nischen zusaetzlich "strict" (siehe STRICT_FRESH):
+# dort wird NICHT mit alten Meldungen aufgefuellt -> lieber weniger/leer als 3 Tage alt.
 AGE_BY_CLUSTER = {
     "Münster Lokal":                   72,    # lokal -> bis 3 Tage zurück
-    "Mesum & Rheine":                  120,   # lokal -> bis 5 Tage zurück
-    "Genossenschaftsbanken & Atruvia": 120,   # Fachnische -> bis 5 Tage zurück
+    "Mesum & Rheine":                  120,   # Mesum-Meldungen sind selten -> bis 5 Tage sichtbar;
+                                              # Rheine bleibt via when:2d in der Query trotzdem frisch
+    "Genossenschaftsbanken & Atruvia": 48,    # Fachnische, tagesaktuell (strict)
 }
+# Diese Cluster zeigen NUR frische Meldungen (kein alter Backfill). Leer = Cluster faellt weg.
+STRICT_FRESH = {"Mesum & Rheine", "Genossenschaftsbanken & Atruvia"}
 
 # Treffer mit diesem Begriff werden im jeweiligen Cluster nach vorne gezogen,
 # ABER nur wenn die Meldung frisch genug ist (siehe PRIORITY_MAX_AGE_H).
 PRIORITY_TERM = {"Mesum & Rheine": "Mesum"}
 # Prioritaets-Boost greift nur, wenn die Meldung juenger als so viele Stunden ist.
-# Hoeher = Mesum wird auch aelter noch nach oben gezwungen (kann veraltet wirken).
-# Niedriger = strenger, Sektion fuehrt dann mit dem Frischesten (evtl. Rheine).
-PRIORITY_MAX_AGE_H = 48
+# 96h: echte, seltene Mesum-Meldungen bekommen bis ~4 Tage einen garantierten Platz oben.
+# Hoeher = Mesum auch aelter noch oben; Niedriger = strenger (nur ganz frisches Mesum oben).
+PRIORITY_MAX_AGE_H = 96
 
 # Nicht-News / Müll aussortieren (Domain-Teilstrings + Titel-Muster)
 BLOCK_DOMAINS = ("wetter.com", "wetter.de")
@@ -65,11 +69,19 @@ CLUSTERS = [
      ["https://news.google.com/rss/search?q=site:wn.de+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de",
       "https://news.google.com/rss/search?q=Polizei+M%C3%BCnster+OR+Stadt+M%C3%BCnster+when:7d&hl=de&gl=DE&ceid=DE:de"], "Münster / WN"),
     ("Mesum & Rheine",
-     ["https://news.google.com/rss/search?q=%22Mesum%22&hl=de&gl=DE&ceid=DE:de",
-      "https://news.google.com/rss/search?q=site:mv-online.de+Mesum&hl=de&gl=DE&ceid=DE:de",
-      "https://news.google.com/rss/search?q=%22Rheine%22+Lokales&hl=de&gl=DE&ceid=DE:de"], "MV / Lokal"),
+     [# Primaerquelle: offizielle Polizei-/Behoerdenmeldungen (Presseportal) fuer Rheine+Mesum
+      "https://news.google.com/rss/search?q=site:presseportal.de+(Rheine+OR+Mesum)+when:6d&hl=de&gl=DE&ceid=DE:de",
+      # Mesum-spezifischer Fang ueber alle Quellen
+      "https://news.google.com/rss/search?q=%22Mesum%22+when:6d&hl=de&gl=DE&ceid=DE:de",
+      # Zivil/amtlich (Stadt Rheine) + MV als Sekundaer-Fang (soweit Google es indexiert)
+      "https://news.google.com/rss/search?q=(site:rheine.de+OR+site:mv-online.de)+Mesum&hl=de&gl=DE&ceid=DE:de",
+      # Tagesaktuelles Rheine allgemein
+      "https://news.google.com/rss/search?q=%22Rheine%22+when:2d&hl=de&gl=DE&ceid=DE:de",
+      "https://news.google.com/rss/search?q=site:wn.de+Rheine+when:2d&hl=de&gl=DE&ceid=DE:de"],
+     "Lokal"),
     ("Genossenschaftsbanken & Atruvia",
-     ["https://news.google.com/rss/search?q=Genossenschaftsbank+OR+Atruvia+OR+BVR&hl=de&gl=DE&ceid=DE:de"], "Geno-News"),
+     ["https://news.google.com/rss/search?q=(%22Volksbanken+Raiffeisenbanken%22+OR+%22DZ+Bank%22+OR+Genossenschaftsbank+OR+Atruvia+OR+BVR)+when:3d&hl=de&gl=DE&ceid=DE:de",
+      "https://news.google.com/rss/search?q=(Atruvia+OR+%22genossenschaftliche+FinanzGruppe%22)+when:7d&hl=de&gl=DE&ceid=DE:de"], "Geno-News"),
     ("FC Bayern", ["https://fcbinside.de/feed"], "FCBinside"),
 ]
 
@@ -264,11 +276,12 @@ def dedupe_pick(cands, n):
             pass
     return _dedupe_simple(cands, n)
 
-def get_cluster(feeds, max_age_h):
+def get_cluster(feeds, max_age_h, strict=False):
     """Holt viele Kandidaten, filtert Müll, sortiert neu→alt.
     Bevorzugt frische Meldungen (< max_age_h), hängt aber ältere als
     Auffüll-Reserve hinten an, damit der Block auf MAX_PER_CLUSTER kommt.
-    Wirklich Altes (> HARD_MAX_DAYS) fliegt ganz raus."""
+    strict=True: KEIN alter Backfill -> nur wirklich Frisches (sonst weniger/leer).
+    Wirklich Altes (> HARD_MAX_DAYS) fliegt immer raus."""
     now = datetime.now(timezone.utc)
     hard = timedelta(days=HARD_MAX_DAYS)
     cand, seen_links = [], set()
@@ -287,7 +300,9 @@ def get_cluster(feeds, max_age_h):
     win = timedelta(hours=max_age_h)
     fresh = [e for ts, e in cand if ts and (now - ts) <= win]
     older = [e for ts, e in cand if not (ts and (now - ts) <= win)]
-    return fresh + older                      # frisch zuerst, Rest als Backfill
+    if strict:
+        return fresh                          # nur wirklich Frisches, kein alter Backfill
+    return fresh + older                      # sonst: frisch zuerst, Rest als Backfill
 
 # ---------------------------------------------------------------- HTML
 def esc(s): return html.escape(s or "")
@@ -321,7 +336,8 @@ def render_clusters():
     shown = []                                  # cluster-übergreifende Titel
     out = ""
     for i, (title, feeds, src) in enumerate(CLUSTERS):
-        cands = get_cluster(feeds, AGE_BY_CLUSTER.get(title, DEFAULT_AGE_HOURS))
+        cands = get_cluster(feeds, AGE_BY_CLUSTER.get(title, DEFAULT_AGE_HOURS),
+                            strict=title in STRICT_FRESH)
         # schon in einem früheren Cluster gezeigte Story hier rauswerfen
         cands = [c for c in cands
                  if not any(_dup(c.get("title", ""), s) for s in shown)]
