@@ -12,7 +12,7 @@ sondern kommen später im iPhone-Kurzbefehl (Etappe 3) – die bleiben am Gerät
 Läuft automatisch per GitHub Actions. Nichts manuell starten.
 """
 
-import os, re, html, json, calendar, datetime as dt, urllib.parse
+import os, re, html, json, calendar, hashlib, datetime as dt, urllib.parse
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import requests, feedparser
@@ -368,6 +368,10 @@ ADPKD_NEWS_HOURS     = 24 * 14          # Fetch-Fenster Fachpresse
 ADPKD_MAX            = 2                # Call-out zeigt hoechstens so viel
 ADPKD_SHOW_DAYS      = 14               # Frische-Deckel: nur wirklich Neues erscheint,
                                         # Aelteres hallt nicht als Dauer-Reminder nach
+ADPKD_VISIBLE_DAYS   = 3                # Gedaechtnis: jede Meldung max. so viele Tage sichtbar,
+                                        # danach fuer immer Ruhe (kein taeglicher Reminder)
+ADPKD_SEEN_FILE      = "adpkd_seen.json"  # merkt sich, wann eine Meldung zuerst gezeigt wurde
+ADPKD_SEEN_KEEP_DAYS = 45               # alte Eintraege irgendwann ausmisten (Datei klein halten)
 ADPKD_NEWS_QUERY = 'ADPKD OR "Zystennieren" OR "polyzystische Nierenerkrankung"'
 ADPKD_SCI_QUERY  = ('ADPKD OR "autosomal dominant polycystic kidney" '
                     'OR "polyzystische Nierenerkrankung"')
@@ -481,6 +485,60 @@ def _adpkd_gate(items):
     except Exception:
         return []                          # Fehler -> keine Box (fail-closed)
 
+def _adpkd_key(item):
+    """Stabiler Schluessel je Meldung (Titel-basiert, tolerant gegen Tracking-Links)."""
+    norm = re.sub(r"\s+", " ", (item.get("title") or "").strip().lower())
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16]
+
+def _load_seen():
+    try:
+        with open(ADPKD_SEEN_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}                          # fehlt/kaputt -> leeres Gedaechtnis
+
+def _save_seen(store):
+    try:
+        with open(ADPKD_SEEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(store, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        pass                               # Speichern darf den Build nie sprengen
+
+def _apply_seen_memory(gated):
+    """3-Tage-Fenster je Meldung: neu -> zeigen+merken; <3 Tage -> weiter zeigen;
+    aelter -> fuer immer Ruhe. Store wird zurueckgeschrieben (Workflow committet ihn)."""
+    store = _load_seen()
+    today = datetime.now(timezone.utc).date()
+    visible = []
+    for it in gated:
+        k = _adpkd_key(it)
+        first = store.get(k)
+        if first is None:
+            store[k] = today.isoformat()   # erstmals gesehen -> merken + zeigen
+            visible.append(it)
+        else:
+            try:
+                d0 = datetime.strptime(first, "%Y-%m-%d").date()
+            except Exception:
+                d0 = today
+            if (today - d0).days < ADPKD_VISIBLE_DAYS:
+                visible.append(it)          # noch im 3-Tage-Fenster
+            # sonst: abgelaufen -> nicht mehr zeigen (Eintrag bleibt = Ruhe)
+    # Datei klein halten: sehr alte Eintraege ausmisten
+    horizon = today - timedelta(days=ADPKD_SEEN_KEEP_DAYS)
+    for k in [k for k, v in store.items()
+              if (lambda x: x and x < horizon)(_safe_date(v))]:
+        store.pop(k, None)
+    _save_seen(store)
+    return visible
+
+def _safe_date(s):
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
 def get_adpkd():
     try:
         cand = _adpkd_science() + _adpkd_news()
@@ -488,7 +546,8 @@ def get_adpkd():
         cut = timedelta(days=ADPKD_SHOW_DAYS)
         # Frische-Deckel: nur datierte, wirklich neue Beitraege kommen in Frage
         cand = [c for c in cand if c["ts"] and (now - c["ts"]) <= cut]
-        return _adpkd_gate(cand)
+        gated = _adpkd_gate(cand)          # Haiku-Tuersteher
+        return _apply_seen_memory(gated)   # 3-Tage-Gedaechtnis: jede Meldung nur kurz
     except Exception:
         return []                          # nie den Gesamt-Build gefaehrden
 
