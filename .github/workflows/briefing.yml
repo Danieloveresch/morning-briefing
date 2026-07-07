@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Repo holen
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Python einrichten
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -39,7 +39,7 @@ jobs:
         run: python briefing.py
 
       - name: Node einrichten
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -64,5 +64,6 @@ jobs:
           git config user.name "briefing-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add index.html manifest.json
+          git add adpkd_seen.json 2>/dev/null || true
           git commit -m "Briefing aktualisiert" || echo "Keine Aenderungen"
           git push
